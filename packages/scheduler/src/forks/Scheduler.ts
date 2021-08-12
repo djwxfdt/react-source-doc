@@ -1,4 +1,7 @@
+import { Heap, peek, pop, push, TaskNode } from "../SchedulerMinHeap";
+import { markTaskStart } from "../SchedulerProfiling";
 import { IdlePriority, ImmediatePriority, LowPriority, NormalPriority, PriorityLevel, UserBlockingPriority } from "./SchedulerPriorities";
+
 
 var currentPriorityLevel = NormalPriority;
 
@@ -56,6 +59,104 @@ let getCurrentTime: Function;
   }
 }
 
+/**
+ * 这个语句毫无意义！设置成null干啥，调用的时候又不判空, 估计是为了兼容不同平台，但又没写完
+ */
+const localClearTimeout = typeof clearTimeout === 'function' ? clearTimeout : null;
+const localSetTimeout = typeof setTimeout === 'function' ? setTimeout : null;
+
+/**
+ * 是否由回调函数调度
+ */
+var isHostCallbackScheduled = false;
+
+/**
+ * 是否有定时调度任务在跑
+ */
+var isHostTimeoutScheduled = false;
+
+let taskTimeoutID: number | undefined = -1;
+
+
+/**
+ * 是否正在执行任务，防止重入
+ */
+var isPerformingWork = false;
+
+
+/**
+ * 小顶堆，保存将要执行的调度任务
+ */
+const taskQueue: Heap = [];
+
+/**
+ * 小顶堆，保存延迟执行的调度任务
+ */
+const timerQueue: Heap = [];
+
+/**
+ * clearTimeout
+ */
+function cancelHostTimeout() {
+  localClearTimeout?.(taskTimeoutID);
+  taskTimeoutID = -1;
+}
+
+/**
+ * setTimeout
+ */
+function requestHostTimeout(callback: Function, ms: number) {
+  taskTimeoutID = localSetTimeout?.(() => {
+    callback(getCurrentTime());
+  }, ms);
+}
+
+
+/**
+ * 检查延迟队列中的任务，如果已经过期，则将任务移除延迟任务队列，并放入过期任务队列
+ */
+function advanceTimers(currentTime: number) {
+  let timer = peek(timerQueue);
+  while (timer !== null) {
+    if (timer.callback === null) {
+      /**
+       * 当前任务已被取消
+       */
+      pop(timerQueue);
+    } else if (timer.startTime <= currentTime) {
+      pop(timerQueue);
+      timer.sortIndex = timer.expirationTime;
+      push(taskQueue, timer);
+      if (enableProfiling) {
+        markTaskStart(timer, currentTime);
+        timer.isQueued = true;
+      }
+    } else {
+      return;
+    }
+    timer = peek(timerQueue);
+  }
+}
+
+/**
+ * 当延迟任务的时间到了
+ */
+function handleTimeout(currentTime: number) {
+  isHostTimeoutScheduled = false;
+  advanceTimers(currentTime);
+
+  if (!isHostCallbackScheduled) {
+    if (peek(taskQueue) !== null) {
+      isHostCallbackScheduled = true;
+      requestHostCallback(flushWork);
+    } else {
+      const firstTimer = peek(timerQueue);
+      if (firstTimer !== null) {
+        requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+      }
+    }
+  }
+}
 
 function unstable_runWithPriority(priorityLevel: PriorityLevel, eventHandler: Function) {
 
@@ -100,7 +201,7 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
   var currentTime = getCurrentTime();
 
   /**
-   * 计算任务的过期时间，如果没传delay,则代表立即过期
+   * 设置任务的预期执行时间，如果没传delay,则代表立即执行
    */
   var startTime;
   if (typeof options === 'object' && options !== null) {
@@ -138,7 +239,10 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
   }
   var expirationTime = startTime + timeout;
 
-  var newTask = {
+  /**
+   * 创建一个新的调度任务
+   */
+  var newTask: TaskNode  = {
     id: taskIdCounter++,
     callback,
     priorityLevel,
@@ -147,4 +251,46 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
     sortIndex: -1,
   };
 
+  /**
+   * 调试时候用的
+   */
+  if (enableProfiling) {
+    newTask.isQueued = false;
+  }
+
+  /**
+   * 1. 如果是立即执行任务，startTime和currentTime相等，执行else语句，并将调度任务存入小顶堆
+   * 此时将过期时间设置为排序的依据，过期时间越小，越靠前
+   * 2. 如果是延迟任务，则 starTime小于currentTime。执行if语句
+   * 此时预期执行时间被设置为排序的依据，预期执行时间点越小越靠前
+   */
+   if (startTime > currentTime) {
+    newTask.sortIndex = startTime;
+    push(timerQueue, newTask);
+    /**
+     * 如果当前优先级最高的任务恰恰是刚创建的任务，则重新调整定时器的时间
+     */
+    if (peek(taskQueue) === null && newTask === peek(timerQueue)) {
+      if (isHostTimeoutScheduled) {
+        cancelHostTimeout();
+      } else {
+        isHostTimeoutScheduled = true;
+      }
+      // 启动定时器
+      requestHostTimeout(handleTimeout, startTime - currentTime);
+    }
+  } else {
+    newTask.sortIndex = expirationTime;
+    push(taskQueue, newTask);
+    if (enableProfiling) {
+      markTaskStart(newTask, currentTime);
+      newTask.isQueued = true;
+    }
+    // Schedule a host callback, if needed. If we're already performing work,
+    // wait until the next time we yield.
+    if (!isHostCallbackScheduled && !isPerformingWork) {
+      isHostCallbackScheduled = true;
+      requestHostCallback(flushWork);
+    }
+  }
 }
