@@ -1,5 +1,5 @@
-import { enableProfiling } from "./forks/SchedulerFeatureFlags";
-import { PriorityLevel } from "./forks/SchedulerPriorities";
+import { enableProfiling } from "./SchedulerFeatureFlags";
+import { PriorityLevel } from "./SchedulerPriorities";
 
 /**
  * 这里是关于性能监控的一些日志信息

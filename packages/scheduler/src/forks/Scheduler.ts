@@ -1,7 +1,7 @@
 import { Heap, peek, pop, push, TaskNode } from "../SchedulerMinHeap";
 import { markSchedulerSuspended, markSchedulerUnsuspended, markTaskCompleted, markTaskErrored, markTaskRun, markTaskStart, markTaskYield } from "../SchedulerProfiling";
-import { enableIsInputPending, enableProfiling, enableSchedulerDebugging } from "./SchedulerFeatureFlags";
-import { IdlePriority, ImmediatePriority, LowPriority, NormalPriority, PriorityLevel, UserBlockingPriority } from "./SchedulerPriorities";
+import { enableIsInputPending, enableProfiling, enableSchedulerDebugging } from "../SchedulerFeatureFlags";
+import { IdlePriority, ImmediatePriority, LowPriority, NormalPriority, PriorityLevel, UserBlockingPriority } from "../SchedulerPriorities";
 
 
 var currentPriorityLevel = NormalPriority;
@@ -256,6 +256,10 @@ function shouldYieldToHost() {
 
 /**
  * 开始批量执行调度任务
+ * 
+ * 如果当前过期任务队列全部被处理完了，就会检测延时任务队列，并开启定时器（只有这里会有异步）
+ * 
+ * 这里返回的true和false没什么用，没人在意
  */
 function workLoop(hasTimeRemaining: boolean, initialTime: number) {
   let currentTime = initialTime;
@@ -337,21 +341,30 @@ function workLoop(hasTimeRemaining: boolean, initialTime: number) {
 }
 
 /**
- * requestHostCallback的回调函数， 在performWorkUntilDeadline调用
+ * 冲洗当前任务队列
+ * 
+ * requestHostCallback的回调函数
+ * 
+ * 返回的true和false实际上没什么用
  */
 function flushWork(hasTimeRemaining: boolean, initialTime: number) {
   if (enableProfiling) {
     markSchedulerUnsuspended(initialTime);
   }
 
-  // We'll need a host callback the next time work is scheduled.
+  // 设置当前不存在调度回调的标记
   isHostCallbackScheduled = false;
   if (isHostTimeoutScheduled) {
-    // We scheduled a timeout but it's no longer needed. Cancel it.
+    /**
+     * 清除延时任务检测的定时器，因为已经在调度了，workloop执行完会重新开启
+     */
     isHostTimeoutScheduled = false;
     cancelHostTimeout();
   }
 
+  /**
+   * 设置当前正在执行冲洗任务的标记
+   */
   isPerformingWork = true;
   const previousPriorityLevel = currentPriorityLevel;
   try {
@@ -367,10 +380,13 @@ function flushWork(hasTimeRemaining: boolean, initialTime: number) {
         throw error;
       }
     } else {
-      // No catch in prod code path.
+      // 所以上面的if不用在意，这里只有这么一句.
       return workLoop(hasTimeRemaining, initialTime);
     }
   } finally {
+    /**
+     * 恢复执行上下文
+     */
     currentTask = null;
     currentPriorityLevel = previousPriorityLevel;
     isPerformingWork = false;
@@ -394,6 +410,8 @@ function requestHostCallback(callback: Function) {
 
 /**
  * 检查延迟队列中的任务，如果已经过期，则将任务移除延迟任务队列，并放入过期任务队列
+ * 
+ * 里面不存在异步操作，放心
  */
 function advanceTimers(currentTime: number) {
   let timer = peek(timerQueue);
@@ -444,6 +462,9 @@ function handleTimeout(currentTime: number) {
   }
 }
 
+/**
+ * TODO
+ */
 function unstable_runWithPriority(priorityLevel: PriorityLevel, eventHandler: Function) {
 
   /**
@@ -479,6 +500,13 @@ function unstable_runWithPriority(priorityLevel: PriorityLevel, eventHandler: Fu
   }
 }
 
+/**
+ * 创建一个调度任务，如果当前没有在执行调度或执行任务，则启动调度流程
+ *
+ *  代码里面简单来说，就是：
+ * 1. 根据参数，创建延迟任务或者立即执行任务。延迟任务放入延时队列，立即执行任务放入过期任务队列
+ * 2. 执行调度
+ */
 function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Function, options?: {delay: number} | number | null) {
   
   /**
@@ -572,11 +600,19 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
       markTaskStart(newTask, currentTime);
       newTask.isQueued = true;
     }
-    // Schedule a host callback, if needed. If we're already performing work,
-    // wait until the next time we yield.
+   
+    /**
+     * 如果没有任务正在调度，并且没有任务正在执行，则启动任务调度逻辑
+     */
     if (!isHostCallbackScheduled && !isPerformingWork) {
       isHostCallbackScheduled = true;
       requestHostCallback(flushWork);
     }
   }
+}
+
+
+export {
+  unstable_runWithPriority,
+  unstable_scheduleCallback
 }

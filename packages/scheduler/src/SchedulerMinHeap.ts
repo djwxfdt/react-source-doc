@@ -1,4 +1,4 @@
-import { PriorityLevel } from "./forks/SchedulerPriorities";
+import { PriorityLevel } from "./SchedulerPriorities";
 
 
 export type TaskNode = {
