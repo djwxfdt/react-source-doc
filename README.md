@@ -1,2 +1,8 @@
 # react-source-doc
-用typescript重写react源码，并附上阅读过程中的一些理解。
+用typescript重写react源码，逐行写上阅读理解，支持直接调试。
+
+### 翻译进度
+
+| 模块  | 进度 |
+| ---- | ---- |
+| 任务调度（scheduler）| 进行中 |
