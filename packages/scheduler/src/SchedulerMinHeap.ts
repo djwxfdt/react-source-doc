@@ -8,7 +8,7 @@ export type TaskNode = {
   startTime: number,
   expirationTime: number,
   isQueued?: boolean
-  callback: Function
+  callback: Function | null
 };
 
 export type Heap = Array<TaskNode>;
@@ -102,7 +102,7 @@ export function pop(heap: Heap): TaskNode | null {
 }
 
 /**
- * 获取定点的任务，即优先级最高的任务
+ * 获取顶点的任务，即优先级最高的任务
  */
 export function peek(heap: Heap): TaskNode | null {
   return heap.length === 0 ? null : heap[0];

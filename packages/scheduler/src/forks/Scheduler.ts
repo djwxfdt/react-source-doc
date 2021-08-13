@@ -1,5 +1,6 @@
 import { Heap, peek, pop, push, TaskNode } from "../SchedulerMinHeap";
-import { markTaskStart } from "../SchedulerProfiling";
+import { markSchedulerSuspended, markSchedulerUnsuspended, markTaskCompleted, markTaskErrored, markTaskRun, markTaskStart, markTaskYield } from "../SchedulerProfiling";
+import { enableIsInputPending, enableProfiling, enableSchedulerDebugging } from "./SchedulerFeatureFlags";
 import { IdlePriority, ImmediatePriority, LowPriority, NormalPriority, PriorityLevel, UserBlockingPriority } from "./SchedulerPriorities";
 
 
@@ -60,9 +61,12 @@ let getCurrentTime: Function;
 }
 
 /**
- * 这个语句毫无意义！设置成null干啥，调用的时候又不判空, 估计是为了兼容不同平台，但又没写完
+ * 这里防止这几个native api被一些polyfill库重写掉，从而造成执行出问题，但我觉得如果polyfill在之前执行依然会有问题
  */
 const localClearTimeout = typeof clearTimeout === 'function' ? clearTimeout : null;
+/**
+ * 就是setTimeout
+ */
 const localSetTimeout = typeof setTimeout === 'function' ? setTimeout : null;
 
 /**
@@ -71,6 +75,16 @@ const localSetTimeout = typeof setTimeout === 'function' ? setTimeout : null;
  */
 const localSetImmediate = typeof setImmediate !== 'undefined' ? setImmediate : null;
 
+
+/**
+ * 正在执行的任务
+ */
+let currentTask: TaskNode | null = null;
+
+/**
+ * 是否执行了pause
+ */
+let isSchedulerPaused = false;
 
 
 /**
@@ -112,10 +126,50 @@ const taskQueue: Heap = [];
 const timerQueue: Heap = [];
 
 /**
- * to explain
+ * 每执行一段时间挂起一次，来让出执行给主线程，比如用户事件。
+ */
+let yieldInterval = 5;
+
+const maxYieldInterval = 300;
+
+
+/**
+ * 需要被挂起的时间点
+ */
+let deadline = 0;
+
+/**
+ * needs explain
+ */
+let needsPaint = false;
+
+
+/**
+ * 执行回调任务，直至到deadline
  */
 const performWorkUntilDeadline = () => {
-
+  /**
+   * 就是requestHostCallback传进来的回调参数，保存到了全局
+   */
+  if (scheduledHostCallback !== null) {
+    const currentTime = getCurrentTime();
+    deadline = currentTime + yieldInterval;
+    const hasTimeRemaining = true;
+    let hasMoreWork = true;
+    try {
+      hasMoreWork = scheduledHostCallback(hasTimeRemaining, currentTime);
+    } finally {
+      if (hasMoreWork) {
+        schedulePerformWorkUntilDeadline!();
+      } else {
+        isMessageLoopRunning = false;
+        scheduledHostCallback = null;
+      }
+    }
+  } else {
+    isMessageLoopRunning = false;
+  }
+  needsPaint = false;
 }
 
 /**
@@ -164,6 +218,176 @@ function requestHostTimeout(callback: Function, ms: number) {
   }, ms);
 }
 
+/**
+ * to explain
+ */
+function shouldYieldToHost() {
+  if (
+    enableIsInputPending &&
+    navigator !== undefined &&
+    navigator.scheduling !== undefined &&
+    navigator.scheduling.isInputPending !== undefined
+  ) {
+    const scheduling = navigator.scheduling;
+    const currentTime = getCurrentTime();
+    if (currentTime >= deadline) {
+      // There's no time left. We may want to yield control of the main
+      // thread, so the browser can perform high priority tasks. The main ones
+      // are painting and user input. If there's a pending paint or a pending
+      // input, then we should yield. But if there's neither, then we can
+      // yield less often while remaining responsive. We'll eventually yield
+      // regardless, since there could be a pending paint that wasn't
+      // accompanied by a call to `requestPaint`, or other main thread tasks
+      // like network events.
+      if (needsPaint || scheduling.isInputPending!()) {
+        // There is either a pending paint or a pending input.
+        return true;
+      }
+      // There's no pending input. Only yield if we've reached the max
+      // yield interval.
+      const timeElapsed = currentTime - (deadline - yieldInterval);
+      return timeElapsed >= maxYieldInterval;
+    } else {
+      // There's still time left in the frame.
+      return false;
+    }
+  } else {
+    // `isInputPending` is not available. Since we have no way of knowing if
+    // there's pending input, always yield at the end of the frame.
+    return getCurrentTime() >= deadline;
+  }
+}
+
+/**
+ * 开始批量执行调度任务
+ */
+function workLoop(hasTimeRemaining: boolean, initialTime: number) {
+  let currentTime = initialTime;
+  advanceTimers(currentTime);
+  currentTask = peek(taskQueue);
+  while (
+    currentTask !== null &&
+    /**
+     * 如果调度被暂停了，那肯定不能开始调度任务
+     */
+    !(enableSchedulerDebugging && isSchedulerPaused)
+  ) {
+    if (
+      currentTask.expirationTime > currentTime &&
+      (!hasTimeRemaining || shouldYieldToHost())
+    ) {
+      // 这时候任务还没过期，但是已经没时间给你调度了。
+      break;
+    }
+    const callback = currentTask.callback;
+    /**
+     * 如果任务被取消了，callback可能为null
+     */
+    if (typeof callback === 'function') {
+      currentTask.callback = null;
+      currentPriorityLevel = currentTask.priorityLevel;
+      const didUserCallbackTimeout = currentTask.expirationTime <= currentTime;
+      if (enableProfiling) {
+        markTaskRun(currentTask, currentTime);
+      }
+      
+      const continuationCallback = callback(didUserCallbackTimeout);
+      currentTime = getCurrentTime();
+      /**
+       * 任务执行完之后还存在后续的任务需要执行，将当前任务的回调设置为后续任务的回调，等待下次执行
+       */
+      if (typeof continuationCallback === 'function') {
+        currentTask.callback = continuationCallback;
+        if (enableProfiling) {
+          markTaskYield(currentTask, currentTime);
+        }
+      } else {
+        if (enableProfiling) {
+          markTaskCompleted(currentTask, currentTime);
+          currentTask.isQueued = false;
+        }
+        /**
+         * 如果不存在后续的任务需要执行，则弹出当前任务
+         */
+        if (currentTask === peek(taskQueue)) {
+          pop(taskQueue);
+        }
+      }
+      /**
+       * 每次执行完一次任务都检查一下有没有延时任务到点了，到点了得让他执行
+       */
+      advanceTimers(currentTime);
+    } else {
+      pop(taskQueue);
+    }
+    currentTask = peek(taskQueue);
+  }
+  
+  /**
+   * 检查跳出循环之后，是否还有任务还未执行
+   */
+  if (currentTask !== null) {
+    return true;
+  } else {
+    const firstTimer = peek(timerQueue);
+    /**
+     * 如果没有则先检查有没有延时任务，没有就return，有的话继续开启定时器
+     */
+    if (firstTimer !== null) {
+      requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+    }
+    return false;
+  }
+}
+
+/**
+ * requestHostCallback的回调函数， 在performWorkUntilDeadline调用
+ */
+function flushWork(hasTimeRemaining: boolean, initialTime: number) {
+  if (enableProfiling) {
+    markSchedulerUnsuspended(initialTime);
+  }
+
+  // We'll need a host callback the next time work is scheduled.
+  isHostCallbackScheduled = false;
+  if (isHostTimeoutScheduled) {
+    // We scheduled a timeout but it's no longer needed. Cancel it.
+    isHostTimeoutScheduled = false;
+    cancelHostTimeout();
+  }
+
+  isPerformingWork = true;
+  const previousPriorityLevel = currentPriorityLevel;
+  try {
+    if (enableProfiling) {
+      try {
+        return workLoop(hasTimeRemaining, initialTime);
+      } catch (error) {
+        if (currentTask !== null) {
+          const currentTime = getCurrentTime();
+          markTaskErrored(currentTask, currentTime);
+          currentTask.isQueued = false;
+        }
+        throw error;
+      }
+    } else {
+      // No catch in prod code path.
+      return workLoop(hasTimeRemaining, initialTime);
+    }
+  } finally {
+    currentTask = null;
+    currentPriorityLevel = previousPriorityLevel;
+    isPerformingWork = false;
+    if (enableProfiling) {
+      const currentTime = getCurrentTime();
+      markSchedulerSuspended(currentTime);
+    }
+  }
+}
+
+/**
+ * 在下一次任务执行时机（宏任务）执行回调
+ */
 function requestHostCallback(callback: Function) {
   scheduledHostCallback = callback;
   if (!isMessageLoopRunning) {
@@ -171,8 +395,6 @@ function requestHostCallback(callback: Function) {
     schedulePerformWorkUntilDeadline!();
   }
 }
-
-
 
 /**
  * 检查延迟队列中的任务，如果已经过期，则将任务移除延迟任务队列，并放入过期任务队列
@@ -332,7 +554,7 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
    * 2. 如果是延迟任务，则 starTime小于currentTime。执行if语句
    * 此时预期执行时间被设置为排序的依据，预期执行时间点越小越靠前
    */
-   if (startTime > currentTime) {
+  if (startTime > currentTime) {
     newTask.sortIndex = startTime;
     push(timerQueue, newTask);
     /**

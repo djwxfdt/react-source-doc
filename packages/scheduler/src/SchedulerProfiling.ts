@@ -1,12 +1,29 @@
+import { enableProfiling } from "./forks/SchedulerFeatureFlags";
 import { PriorityLevel } from "./forks/SchedulerPriorities";
 
+/**
+ * 这里是关于性能监控的一些日志信息
+ */
 
 const TaskStartEvent = 1;
+const TaskCompleteEvent = 2;
+const TaskErrorEvent = 3;
+const TaskCancelEvent = 4;
+const TaskRunEvent = 5;
+const TaskYieldEvent = 6;
+const SchedulerSuspendEvent = 7;
+const SchedulerResumeEvent = 8;
+
 
 let eventLog: Int32Array | null = null;
 let eventLogIndex = 0;
 let eventLogSize = 0;
 let eventLogBuffer: ArrayBuffer | null = null;
+
+let mainThreadIdCounter: number = 0;
+
+let runIdCounter: number = 0;
+
 
 const MAX_EVENT_LOG_SIZE = 524288; // Equivalent to 2 megabytes
 
@@ -60,6 +77,95 @@ export function markTaskStart<T extends {
       // event is logged, it's coerced to an int. Convert to microseconds to
       // maintain extra degrees of precision.
       logEvent([TaskStartEvent, ms * 1000, task.id, task.priorityLevel]);
+    }
+  }
+}
+
+/**
+ * 调度开始启动日志
+ */
+export function markSchedulerUnsuspended(ms: number) {
+  if (enableProfiling) {
+    if (eventLog !== null) {
+      logEvent([SchedulerResumeEvent, ms * 1000, mainThreadIdCounter]);
+    }
+  }
+}
+
+/**
+ * 调度出错日志
+ */
+export function markTaskErrored<T extends {
+  id: number,
+  priorityLevel: PriorityLevel,
+}>(
+  task: T ,
+  ms: number,
+) {
+  if (enableProfiling) {
+    if (eventLog !== null) {
+      logEvent([TaskErrorEvent, ms * 1000, task.id]);
+    }
+  }
+}
+
+/**
+ * 调度暂停日志
+ */
+export function markSchedulerSuspended(ms: number) {
+  if (enableProfiling) {
+    mainThreadIdCounter++;
+
+    if (eventLog !== null) {
+      logEvent([SchedulerSuspendEvent, ms * 1000, mainThreadIdCounter]);
+    }
+  }
+}
+
+/**
+ * 任务开始执行日志
+ */
+export function markTaskRun<T extends {
+  id: number,
+  priorityLevel: PriorityLevel,
+}>(
+  task: T,
+  ms: number,
+) {
+  if (enableProfiling) {
+    runIdCounter++;
+
+    if (eventLog !== null) {
+      logEvent([TaskRunEvent, ms * 1000, task.id, runIdCounter]);
+    }
+  }
+}
+
+/**
+ * 任务存在链式调用，让出执行，准备下次的执行
+ */
+export function markTaskYield<T extends {
+  id: number,
+}>(task: T, ms: number) {
+  if (enableProfiling) {
+    if (eventLog !== null) {
+      logEvent([TaskYieldEvent, ms * 1000, task.id, runIdCounter]);
+    }
+  }
+}
+
+/**
+ * 任务执行完毕的日志
+ */
+export function markTaskCompleted<T extends {
+  id: number,
+}>(
+  task: T,
+  ms: number,
+) {
+  if (enableProfiling) {
+    if (eventLog !== null) {
+      logEvent([TaskCompleteEvent, ms * 1000, task.id]);
     }
   }
 }
