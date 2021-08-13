@@ -66,6 +66,14 @@ const localClearTimeout = typeof clearTimeout === 'function' ? clearTimeout : nu
 const localSetTimeout = typeof setTimeout === 'function' ? setTimeout : null;
 
 /**
+ * 只有nodejs, ie和jsdom支持这个方法
+ * setImmediate 是宏任务, 在事件循环的check阶段执行。如果在timer阶段执行的，就会在本轮执行。不然会在下个循环
+ */
+const localSetImmediate = typeof setImmediate !== 'undefined' ? setImmediate : null;
+
+
+
+/**
  * 是否由回调函数调度
  */
 var isHostCallbackScheduled = false;
@@ -77,6 +85,15 @@ var isHostTimeoutScheduled = false;
 
 let taskTimeoutID: number | undefined = -1;
 
+/**
+ * to explain
+ */
+let scheduledHostCallback: Function | null = null;
+
+/**
+ * 当前是否有批量任务正在执行
+ */
+let isMessageLoopRunning = false;
 
 /**
  * 是否正在执行任务，防止重入
@@ -95,6 +112,42 @@ const taskQueue: Heap = [];
 const timerQueue: Heap = [];
 
 /**
+ * to explain
+ */
+const performWorkUntilDeadline = () => {
+
+}
+
+/**
+ * 调度管理时间大师
+ */
+let schedulePerformWorkUntilDeadline: Function | undefined;
+
+/**
+ * 优先选用setImmediate方法，原因有一些，总结不出来，可能更简洁，原生支持，不需要投机
+ */
+if (typeof localSetImmediate === 'function') {
+  schedulePerformWorkUntilDeadline = () => {
+    localSetImmediate(performWorkUntilDeadline);
+  };
+} else if (typeof MessageChannel !== 'undefined') {
+  /**
+   * 为什么选用MessageChannel？因为浏览器针对setTimeout有clamping，即使你设置成0ms，实际执行的时候也是在5-10ms左右
+   */
+  const channel = new MessageChannel();
+  const port = channel.port2;
+  channel.port1.onmessage = performWorkUntilDeadline;
+  schedulePerformWorkUntilDeadline = () => {
+    port.postMessage(null);
+  };
+} else {
+  // 如果你前两个都不支持，那..好自为之
+  schedulePerformWorkUntilDeadline = () => {
+    localSetTimeout?.(performWorkUntilDeadline, 0);
+  };
+}
+
+/**
  * clearTimeout
  */
 function cancelHostTimeout() {
@@ -110,6 +163,15 @@ function requestHostTimeout(callback: Function, ms: number) {
     callback(getCurrentTime());
   }, ms);
 }
+
+function requestHostCallback(callback: Function) {
+  scheduledHostCallback = callback;
+  if (!isMessageLoopRunning) {
+    isMessageLoopRunning = true;
+    schedulePerformWorkUntilDeadline!();
+  }
+}
+
 
 
 /**
@@ -145,7 +207,13 @@ function handleTimeout(currentTime: number) {
   isHostTimeoutScheduled = false;
   advanceTimers(currentTime);
 
+  /**
+   * 如果当前不存在正在调度的任务
+   */
   if (!isHostCallbackScheduled) {
+    /**
+     * 一般情况下advanceTimers执行完成之后，taskQueue里面会有任务
+     */
     if (peek(taskQueue) !== null) {
       isHostCallbackScheduled = true;
       requestHostCallback(flushWork);
