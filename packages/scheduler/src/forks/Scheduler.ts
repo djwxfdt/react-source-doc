@@ -219,7 +219,7 @@ function requestHostTimeout(callback: Function, ms: number) {
 }
 
 /**
- * to explain
+ * 检测是否需要暂停任务调度，将执行环境交给主线程执行，以期获得更好的交互性能
  */
 function shouldYieldToHost() {
   if (
@@ -231,29 +231,25 @@ function shouldYieldToHost() {
     const scheduling = navigator.scheduling;
     const currentTime = getCurrentTime();
     if (currentTime >= deadline) {
-      // There's no time left. We may want to yield control of the main
-      // thread, so the browser can perform high priority tasks. The main ones
-      // are painting and user input. If there's a pending paint or a pending
-      // input, then we should yield. But if there's neither, then we can
-      // yield less often while remaining responsive. We'll eventually yield
-      // regardless, since there could be a pending paint that wasn't
-      // accompanied by a call to `requestPaint`, or other main thread tasks
-      // like network events.
       if (needsPaint || scheduling.isInputPending!()) {
-        // There is either a pending paint or a pending input.
+        /**
+         * 如果needsPaint为true，或者存在input活动，就返回true
+         */
         return true;
       }
-      // There's no pending input. Only yield if we've reached the max
-      // yield interval.
+      /**
+       * 如果不存在上面的情况，则表明浏览器这时候还很空闲，可以继续执行一段时间。
+       * 但是不能一直执行下去，最高执行300ms，以防止万一有啥考虑不周的还能交出执行权
+       */
       const timeElapsed = currentTime - (deadline - yieldInterval);
       return timeElapsed >= maxYieldInterval;
     } else {
-      // There's still time left in the frame.
       return false;
     }
   } else {
-    // `isInputPending` is not available. Since we have no way of knowing if
-    // there's pending input, always yield at the end of the frame.
+    /**
+     * 如果不存在 isInputPending 方法，则简单的判断是否已经执行操作5ms了。超过就退出调度循环
+     */
     return getCurrentTime() >= deadline;
   }
 }
