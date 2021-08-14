@@ -1,0 +1,67 @@
+
+graph TD;
+
+main((入口)) --> task;
+
+task --> unstable_scheduleCallback;
+
+unstable_scheduleCallback --> push;
+
+push -- 没有设置延迟时间 --> taskQueue;
+
+push -- 如果当前不存在调度流程 --> requestHostCallback;
+
+push -- 设置了延迟时间 --> timerQueue;
+
+
+requestHostCallback --->schedulePerformWorkUntilDeadline;
+
+requestHostCallback -- 将flushWork保存到全局作为回调函数 --> flushWork;
+
+requestHostCallback --true--> isHostCallbackScheduled
+
+schedulePerformWorkUntilDeadline --> D1{检查执行环境};
+
+D1 --如果存在setImmediate--> SetImmediate;
+
+D1 --如果不存在setImmediate--> MessageChannel;
+
+D1 -- 如果都不存在 --> setTimeout;
+
+SetImmediate --> performWorkUntilDeadline;
+
+MessageChannel --> performWorkUntilDeadline;
+
+setTimeout --> performWorkUntilDeadline;
+
+performWorkUntilDeadline --> flushWork;
+
+performWorkUntilDeadline --将deadline设置为当前时间加yieldInterval --> deadline
+
+yieldInterval --> 5ms;
+
+isHostCallbackScheduled;
+
+flushWork --false--> isHostCallbackScheduled;
+
+isHostTimeoutScheduled;
+
+flushWork -- false --> isHostTimeoutScheduled;
+
+flushWork -- true --> isPerformingWork;
+
+flushWork -- 保存当前环境变量 --> workLoop;
+
+workLoop --> advanceTimers;
+
+advanceTimers -- 检查延迟队列 --> timerQueue;
+
+advanceTimers --取出过期任务到过期队列--> taskQueue;
+
+workLoop --> D2{检查是否满足执行条件}
+
+D2 --> runTask[执行任务task];
+
+runTask -- 恢复环境变量 --> requestHostTimeout;
+
+runTask --> 结束

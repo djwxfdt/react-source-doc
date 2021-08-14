@@ -215,7 +215,7 @@ function cancelHostTimeout() {
 function requestHostTimeout(callback: Function, ms: number) {
   taskTimeoutID = localSetTimeout?.(() => {
     callback(getCurrentTime());
-  }, ms);
+  }, ms) as any;
 }
 
 /**

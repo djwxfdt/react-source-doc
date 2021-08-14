@@ -4,7 +4,8 @@
   "description": "用typescript重写react源码，并附上阅读过程中的一些理解。",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "mmdc:scheduler": "npx mmdc -i ./packages/scheduler/flow.mmd -o ./packages/scheduler/images/flow.png"
   },
   "repository": {
     "type": "git",
@@ -17,6 +18,7 @@
   },
   "homepage": "https://github.com/djwxfdt/react-source-doc#readme",
   "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^8.11.4",
     "@typescript-eslint/eslint-plugin": "^4.29.1",
     "@typescript-eslint/parser": "^4.29.1",
     "eslint": "^7.32.0"
