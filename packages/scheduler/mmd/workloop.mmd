@@ -1,0 +1,44 @@
+sequenceDiagram title: workLoop
+  participant flushWork
+  participant workLoop
+  participant advanceTimers
+  participant timerQueue
+  participant taskQueue
+
+  participant task
+
+  flushWork ->> workLoop:调用
+  loop while循环
+    workLoop -->>+advanceTimers:调用advanceTimers
+    loop while循环
+      advanceTimers ->>timerQueue:peek
+      alt 队列为空
+        advanceTimers ->> workLoop:返回
+      else 队列不为空
+        alt 最前面的任务已过期
+          advanceTimers ->>timerQueue:pop
+          advanceTimers ->>taskQueue:push
+        else 没有任务过期
+          advanceTimers ->>-workLoop: 
+        end
+      end
+    end
+
+    loop while循环  
+      workLoop ->> taskQueue:peek
+      alt 调度没被暂停
+        alt 当前已经没时间了,或者有输入绘制事件
+          workLoop ->> workLoop:跳出循环
+        else 执行需要被调度的任务回调
+          workLoop ->> +task:执行回调
+          task --> -workLoop: 返回需要链式调用的回调函数
+        end
+      end
+    end
+  end
+
+  alt 任务已经全部被执行
+    workLoop ->> workLoop: 启动定时器requestHostTimeout
+  end
+  workLoop ->> flushWork: 返回
+

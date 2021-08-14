@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "mmdc:scheduler": "npx mmdc -i ./packages/scheduler/flow.mmd -o ./packages/scheduler/images/flow.svg"
+    "mmdc:scheduler": "./script/mmdc.sh packages/scheduler/mmd"
   },
   "repository": {
     "type": "git",

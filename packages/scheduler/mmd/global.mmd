@@ -1,0 +1,21 @@
+graph TD;
+
+    g[全局变量]
+
+    var1>yieldInterval = 5ms];
+
+    var2>timerQueue:延迟任务队列];
+
+    var3>taskQueue:过期任务队列];
+
+    var4>isHostCallbackScheduled:是否正在执行调度逻辑]
+
+    var5>isHostTimeoutScheduled:是否有定时任务计时器]
+
+    g --- var1 
+    g --- var2
+    g --- var3 
+    g --- var4
+    g --- var5
+
+

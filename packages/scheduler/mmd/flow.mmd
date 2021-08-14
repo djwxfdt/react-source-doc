@@ -1,6 +1,8 @@
 
 graph TD;
 
+classDef someclass fill:#f96;
+
 main((入口)) --> task;
 
 task --> unstable_scheduleCallback;
@@ -12,7 +14,6 @@ push -- 没有设置延迟时间 --> taskQueue;
 push -- 如果当前不存在调度流程 --> requestHostCallback;
 
 push -- 设置了延迟时间 --> timerQueue;
-
 
 requestHostCallback --->schedulePerformWorkUntilDeadline;
 
@@ -38,7 +39,6 @@ performWorkUntilDeadline --> flushWork;
 
 performWorkUntilDeadline --将deadline设置为当前时间加yieldInterval --> deadline
 
-yieldInterval --> 5ms;
 
 isHostCallbackScheduled;
 
@@ -52,13 +52,7 @@ flushWork -- true --> isPerformingWork;
 
 flushWork -- 保存当前环境变量 --> workLoop;
 
-workLoop --> advanceTimers;
-
-advanceTimers -- 检查延迟队列 --> timerQueue;
-
-advanceTimers --取出过期任务到过期队列--> taskQueue;
-
-workLoop --> D2{检查是否满足执行条件}
+workLoop:::someclass --> D2{检查是否满足执行条件}
 
 D2 --> runTask[执行任务task];
 

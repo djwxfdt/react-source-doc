@@ -307,7 +307,7 @@ function workLoop(hasTimeRemaining: boolean, initialTime: number) {
           currentTask.isQueued = false;
         }
         /**
-         * 如果不存在后续的任务需要执行，则弹出当前任务
+         * 弹出已被执行的任务
          */
         if (currentTask === peek(taskQueue)) {
           pop(taskQueue);
