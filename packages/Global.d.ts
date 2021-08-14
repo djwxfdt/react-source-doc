@@ -14,5 +14,14 @@ interface Navigator extends Navigator {
      */
     isInputPending?: Function
   }
-
 }
+
+/**
+ * flow 里面的混合类型，和any只有细微的差异，可以忽略
+ */
+type mixed = any
+
+/**
+ * flow 里面的非空类型
+ */
+type $NonMaybeType<T> = T!
