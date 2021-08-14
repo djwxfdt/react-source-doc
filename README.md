@@ -7,4 +7,5 @@
 
 | 模块  | 进度 |
 | ---- | ---- |
-| 任务调度（scheduler）| 进行中 |
+| 任务调度（scheduler）| [已完成](./packages/scheduler/README.md) |
+| 协调（react-reconciler）| 进行中 |

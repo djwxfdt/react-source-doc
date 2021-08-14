@@ -100,7 +100,7 @@ var isHostTimeoutScheduled = false;
 let taskTimeoutID: number | undefined = -1;
 
 /**
- * to explain
+ * 执行requestHostCallback之后设置的全局变量，在setImmediate之类的回调中将被调用
  */
 let scheduledHostCallback: Function | null = null;
 
@@ -139,7 +139,7 @@ const maxYieldInterval = 300;
 let deadline = 0;
 
 /**
- * needs explain
+ * 由外部调用设置的标记，在批量调度时判断是否有要中止调度
  */
 let needsPaint = false;
 
