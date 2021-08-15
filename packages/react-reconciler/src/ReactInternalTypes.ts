@@ -6,7 +6,7 @@ import { Lane, LaneMap, Lanes } from "./ReactFiberLane.old";
 import { RootTag } from "./ReactRootTags";
 import { TypeOfMode } from "./ReactTypeOfMode";
 import { WorkTag } from "./ReactWorkTags";
-
+import { Cache } from './ReactFiberCacheComponent.old';
 /**
  * 先拷贝过来，后面再解释
  */
@@ -34,8 +34,8 @@ export interface Wakeable {
 }
 
 type UpdaterTrackingOnlyFiberRootProperties = {
-  memoizedUpdaters: Set<Fiber>,
-  pendingUpdatersLaneMap: LaneMap<Set<Fiber>>,
+  memoizedUpdaters?: Set<Fiber>,
+  pendingUpdatersLaneMap?: LaneMap<Set<Fiber>>,
 };
 
 export type ContextDependency<T> = {
@@ -57,7 +57,7 @@ export interface SuspenseHydrationCallbacks  {
 
 
 type SuspenseCallbackOnlyFiberRootProperties = {
-  hydrationCallbacks: null | SuspenseHydrationCallbacks,
+  hydrationCallbacks?: null | SuspenseHydrationCallbacks,
 };
 
 export type Fiber = {
@@ -135,13 +135,13 @@ export type Fiber = {
   deletions: Array<Fiber> | null,
 
   // Singly linked list fast path to the next fiber with side-effects.
-  nextEffect: Fiber | null,
+  nextEffect?: Fiber | null,
 
   // The first and last fiber with side-effect within this subtree. This allows
   // us to reuse a slice of the linked list when we reuse the work done within
   // this fiber.
-  firstEffect: Fiber | null,
-  lastEffect: Fiber | null,
+  firstEffect?: Fiber | null,
+  lastEffect?: Fiber | null,
 
   lanes: Lanes,
   childLanes: Lanes,
@@ -195,7 +195,7 @@ type BaseFiberRootProperties = {
   // Used only by persistent updates.
   pendingChildren: any,
   // The currently active root fiber. This is the mutable root of the tree.
-  current: Fiber,
+  current: Fiber | null,
 
   pingCache: WeakMap<Wakeable, Set<mixed>> | Map<Wakeable, Set<mixed>> | null,
 
@@ -233,8 +233,8 @@ type BaseFiberRootProperties = {
   entangledLanes: Lanes,
   entanglements: LaneMap<Lanes>,
 
-  pooledCache: Cache | null,
-  pooledCacheLanes: Lanes,
+  pooledCache?: Cache | null,
+  pooledCacheLanes?: Lanes,
 };
 
 

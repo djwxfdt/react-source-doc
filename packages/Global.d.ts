@@ -1,8 +1,19 @@
 
 // /**
-//  * 是否启用性能分析的标志，由webpack设置的全局标记
+//  * 是否启用性能分析的标志，由打包工具设置的全局标记
 //  */
 declare var __VARIANT__:boolean | undefined
+
+/**
+ * 试验性功能开启的标记，由打包工具设置的全局标记
+ */
+declare var __EXPERIMENTAL__: boolean | undefined
+
+declare var __PROFILE__: boolean | undefined
+
+declare var __DEV__: boolean | undefined
+
+declare var __REACT_DEVTOOLS_GLOBAL_HOOK__: boolean | undefined
 
 declare var setImmediate: Function
 
