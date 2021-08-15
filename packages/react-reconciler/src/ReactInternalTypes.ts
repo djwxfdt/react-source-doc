@@ -114,7 +114,7 @@ export type Fiber = {
   memoizedProps: any, // The props used to create the output.
 
   // A queue of state updates and callbacks.
-  updateQueue: UpdateQueue<any>,
+  updateQueue: mixed,
 
   // The state used to create the output
   memoizedState: any,

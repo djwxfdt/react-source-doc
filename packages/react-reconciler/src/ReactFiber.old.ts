@@ -5,6 +5,7 @@ import { NoLanes } from "./ReactFiberLane.old";
 import { Fiber } from "./ReactInternalTypes";
 import { ConcurrentRoot, RootTag } from "./ReactRootTags";
 import { ConcurrentMode, ConcurrentUpdatesByDefaultMode, NoMode, ProfileMode, StrictEffectsMode, StrictLegacyMode, TypeOfMode } from "./ReactTypeOfMode";
+import { UpdateQueue } from "./ReactUpdateQueue.old";
 import { HostRoot, WorkTag } from "./ReactWorkTags";
 
 let hasBadMapPolyfill: boolean;
@@ -39,7 +40,7 @@ class FiberNode implements Fiber {
   ref: null;
   pendingProps: mixed;
   memoizedProps: null;
-  updateQueue: null;
+  updateQueue: mixed;
   memoizedState: null;
   dependencies: null;
   mode: TypeOfMode;
