@@ -24,6 +24,9 @@ if (__DEV__) {
 }
 
 class FiberNode implements Fiber {
+  /**
+   * fiber 节点类型
+   */
   tag: WorkTag;
   key: string | null;
   elementType: null;
@@ -153,9 +156,15 @@ export function createHostRootFiber(
   isStrictMode: boolean,
   concurrentUpdatesByDefaultOverride: null | boolean,
 ): Fiber {
+  /**
+   * 这里对Fiber设置一些标记
+   */
   let mode: TypeOfMode;
   if (tag === ConcurrentRoot) {
     mode = ConcurrentMode;
+    /**
+     * 是否开启React严格类型检查
+     */
     if (isStrictMode === true) {
       mode |= StrictLegacyMode;
 

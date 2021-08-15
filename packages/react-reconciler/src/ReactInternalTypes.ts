@@ -7,6 +7,7 @@ import { RootTag } from "./ReactRootTags";
 import { TypeOfMode } from "./ReactTypeOfMode";
 import { WorkTag } from "./ReactWorkTags";
 import { Cache } from './ReactFiberCacheComponent.old';
+import { UpdateQueue } from "./ReactUpdateQueue.old";
 /**
  * 先拷贝过来，后面再解释
  */
@@ -113,7 +114,7 @@ export type Fiber = {
   memoizedProps: any, // The props used to create the output.
 
   // A queue of state updates and callbacks.
-  updateQueue: mixed,
+  updateQueue: UpdateQueue<any>,
 
   // The state used to create the output
   memoizedState: any,
@@ -194,7 +195,10 @@ type BaseFiberRootProperties = {
   containerInfo: any,
   // Used only by persistent updates.
   pendingChildren: any,
-  // The currently active root fiber. This is the mutable root of the tree.
+
+  /**
+   * 指向HostRoot类型的Fiber节点
+   */
   current: Fiber | null,
 
   pingCache: WeakMap<Wakeable, Set<mixed>> | Map<Wakeable, Set<mixed>> | null,

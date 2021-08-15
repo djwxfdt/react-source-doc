@@ -5,9 +5,18 @@ import { createLaneMap, Lane, LaneMap, Lanes, NoLane, NoLanes, NoTimestamp, Tota
 import { Fiber, FiberRoot, SuspenseHydrationCallbacks, Wakeable } from "./ReactInternalTypes";
 import { ConcurrentRoot, LegacyRoot, RootTag } from "./ReactRootTags";
 import { Cache } from './ReactFiberCacheComponent.old';
+import { createHostRootFiber } from "./ReactFiber.old";
+import { initializeUpdateQueue } from "./ReactUpdateQueue.old";
 
 class FiberRootNode implements FiberRoot {
+  /**
+   * LegacyRoot或ConcurrentRoot
+   */
   tag: RootTag;
+
+  /**
+    * HTMLElement
+  */
   containerInfo: any;
   pendingChildren: any;
   current: Fiber | null;
@@ -108,6 +117,16 @@ class FiberRootNode implements FiberRoot {
   
 }
 
+/**
+ * 创建 FiberRoot 对象
+ * @param containerInfo web中是网页dom对象 HTMLElement
+ * @param tag 表明fiberRoot的类型，分为legacy_root和concurrent_root。
+ * @param hydrate 是否注水，服务端渲染的方式会用到这个
+ * @param hydrationCallbacks 
+ * @param isStrictMode  是否是 StrictMode 用于检查不安全的react代码
+ * @param concurrentUpdatesByDefaultOverride 
+ * @returns FiberRoot
+ */
 export function createFiberRoot(
   containerInfo: Container,
   tag: RootTag,
@@ -116,18 +135,20 @@ export function createFiberRoot(
   isStrictMode: boolean,
   concurrentUpdatesByDefaultOverride: null | boolean,
 ): FiberRoot {
-  const root: FiberRoot = (new FiberRootNode(containerInfo, tag, hydrate));
+  const root: FiberRoot = new FiberRootNode(containerInfo, tag, hydrate);
   if (enableSuspenseCallback) {
     root.hydrationCallbacks = hydrationCallbacks;
   }
 
-  // Cyclic construction. This cheats the type system right now because
-  // stateNode is any.
+  // 创建一个初始化的HostRoot类型的fiber节点（create HostRoot Fiber）
   const uninitializedFiber = createHostRootFiber(
     tag,
     isStrictMode,
     concurrentUpdatesByDefaultOverride,
   );
+  /**
+   * 把HostRootFiber挂到FiberRoot上
+   */
   root.current = uninitializedFiber;
   uninitializedFiber.stateNode = root;
 

@@ -1,3 +1,8 @@
+/**
+ * 二进制标记位
+ * 
+ * NoMode | ConcurrentMode | ProfileMode | DebugTracingMode | StrictLegacyMode | StrictEffectsMode | ConcurrentUpdatesByDefaultMode
+ */
 export type TypeOfMode = number;
 
 export const NoMode = /*                         */ 0b000000;
