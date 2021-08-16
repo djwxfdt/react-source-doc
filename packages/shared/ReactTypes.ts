@@ -1,6 +1,50 @@
 import { Fiber } from "../react-reconciler/src/ReactInternalTypes";
 
 
+export type ReactPortal = {
+  $$typeof: Symbol | number,
+  key: null | string,
+  containerInfo: any,
+  children: ReactNodeList,
+  // TODO: figure out the API for cross-renderer implementation.
+  implementation: any,
+};
+
+export type ReactProvider<T> = {
+  $$typeof: Symbol | number,
+  type: ReactProviderType<T>,
+  key: null | string,
+  ref: null,
+  props: {
+    value: T,
+    children?: ReactNodeList,
+  },
+};
+
+export type ReactConsumer<T> = {
+  $$typeof: Symbol | number,
+  type: ReactContext<T>,
+  key: null | string,
+  ref: null,
+  props: {
+    children: (value: T) => ReactNodeList,
+  },
+};
+
+export type ReactNode = React$Element<any>
+  | ReactPortal
+  | ReactText
+  | ReactFragment
+  | ReactProvider<any>
+  | ReactConsumer<any>;
+
+export type ReactEmpty = null | void | boolean;
+
+export type ReactFragment = ReactEmpty | Iterable<React$Node>;
+
+export type ReactNodeList = ReactEmpty | React$Node;
+
+export type ReactText = string | number;
 
 export type RefObject = {
   current: any,

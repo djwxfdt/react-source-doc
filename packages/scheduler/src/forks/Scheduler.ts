@@ -614,5 +614,6 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
 
 export {
   unstable_runWithPriority,
-  unstable_scheduleCallback
+  unstable_scheduleCallback,
+  getCurrentTime as unstable_now,
 }

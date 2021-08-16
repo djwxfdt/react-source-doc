@@ -1,9 +1,3 @@
-
-/**
- * 目前没找到定义的地方
- */
-type React$Element<T> = any
-
 export type Source = {
   fileName: string,
   lineNumber: number,

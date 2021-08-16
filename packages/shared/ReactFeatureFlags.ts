@@ -18,6 +18,8 @@ export const allowConcurrentByDefault = false;
 
 export const createRootStrictEffectsByDefault = false;
 
+export const disableLegacyContext = false;
+
 
 export const enableCache = __EXPERIMENTAL__;
 
@@ -27,6 +29,8 @@ export const enableCache = __EXPERIMENTAL__;
 export const enableProfilerTimer = __PROFILE__;
 
 export const enableProfilerCommitHooks = __PROFILE__;
+
+export const enableSchedulingProfiler = __PROFILE__;
 
 export const enableUpdaterTracking = __PROFILE__;
 
