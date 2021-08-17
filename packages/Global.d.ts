@@ -36,3 +36,23 @@ type mixed = any
  * flow 里面的非空类型
  */
 type $NonMaybeType<T> = T!
+
+/**
+ * 目前没找到定义的地方
+ */
+type Iterator<T> = any
+
+/**
+ * 目前没找到定义的地方
+ */
+type Iterable<T> = any
+
+/**
+ * 目前没找到定义的地方
+ */
+type React$Element<T> = any
+
+/**
+ * 目前没找到定义的地方
+ */
+type React$Node = any
