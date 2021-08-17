@@ -46,6 +46,9 @@ function getElementKey(element: any, index: number): string {
   return index.toString(36);
 }
 
+/**
+ * 
+ */
 function mapIntoArray(
   children: ReactNodeList | undefined,
   array: Array<React$Node>,
@@ -197,6 +200,12 @@ function mapChildren(
   return result;
 }
 
+/**
+ * children的迭代器
+ * @param children 
+ * @param forEachFunc 
+ * @param forEachContext 
+ */
 function forEachChildren(
   children: ReactNodeList | undefined,
   forEachFunc: ForEachFunc,
