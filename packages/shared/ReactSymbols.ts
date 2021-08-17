@@ -1,3 +1,7 @@
+
+const MAYBE_ITERATOR_SYMBOL = typeof Symbol === 'function' && Symbol.iterator;
+const FAUX_ITERATOR_SYMBOL = '@@iterator';
+
 export let REACT_ELEMENT_TYPE: number | Symbol = 0xeac7;
 export let REACT_PORTAL_TYPE: number | Symbol = 0xeaca;
 export let REACT_FRAGMENT_TYPE: number | Symbol = 0xeacb;
@@ -37,4 +41,17 @@ if (typeof Symbol === 'function' && Symbol.for) {
   REACT_OFFSCREEN_TYPE = symbolFor('react.offscreen');
   REACT_LEGACY_HIDDEN_TYPE = symbolFor('react.legacy_hidden');
   REACT_CACHE_TYPE = symbolFor('react.cache');
+}
+
+export function getIteratorFn(maybeIterable?: any): (() => Iterator<any>) | null {
+  if (maybeIterable === null || typeof maybeIterable !== 'object') {
+    return null;
+  }
+  const maybeIterator =
+    (MAYBE_ITERATOR_SYMBOL && maybeIterable[MAYBE_ITERATOR_SYMBOL]) ||
+    maybeIterable[FAUX_ITERATOR_SYMBOL];
+  if (typeof maybeIterator === 'function') {
+    return maybeIterator;
+  }
+  return null;
 }
