@@ -6,6 +6,10 @@ import { IdlePriority, ImmediatePriority, LowPriority, NormalPriority, PriorityL
 
 var currentPriorityLevel = NormalPriority;
 
+function unstable_getCurrentPriorityLevel() {
+  return currentPriorityLevel;
+}
+
 /**
  * 自增id, 用于插入时候进行排序，相同优先级，先插入的先执行
  */
@@ -611,9 +615,17 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
   }
 }
 
-
 export {
+  ImmediatePriority as unstable_ImmediatePriority,
+  UserBlockingPriority as unstable_UserBlockingPriority,
+  NormalPriority as unstable_NormalPriority,
+  IdlePriority as unstable_IdlePriority,
+  LowPriority as unstable_LowPriority,
+
   unstable_runWithPriority,
   unstable_scheduleCallback,
+  shouldYieldToHost as unstable_shouldYield,
   getCurrentTime as unstable_now,
-}
+
+  unstable_getCurrentPriorityLevel
+};

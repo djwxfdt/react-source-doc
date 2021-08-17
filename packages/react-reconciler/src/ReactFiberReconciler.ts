@@ -6,6 +6,9 @@ import { enableNewReconciler } from "../../shared/ReactFeatureFlags";
 
 import {
   createContainer as createContainer_old,
+  updateContainer as updateContainer_old
 } from './ReactFiberReconciler.old'
 
 export const createContainer = createContainer_old;
+
+export const updateContainer = updateContainer_old;

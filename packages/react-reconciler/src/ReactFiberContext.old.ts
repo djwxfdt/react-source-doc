@@ -17,9 +17,14 @@ if (__DEV__) {
   Object.freeze(emptyContextObject);
 }
 
-
+/**
+ * 判断当前组件是否是ContextProvider
+ */
 export function isContextProvider(type: any): boolean {
   if (disableLegacyContext) {
+    /**
+     * 不用担心，这里不会走，永为false
+     */
     return false;
   } else {
     const childContextTypes = type.childContextTypes;
@@ -28,8 +33,14 @@ export function isContextProvider(type: any): boolean {
 }
 
 
+/**
+ * 从下往上找到最近的ContextProvider，并返回当前merge过后的context值
+ */
 export function findCurrentUnmaskedContext(fiber: Fiber): any {
   if (disableLegacyContext) {
+    /**
+     * 不用担心，这里不会走，永为false
+     */
     return emptyContextObject;
   } else {
     // Currently this is only used with renderSubtreeIntoContainer; not sure if it
@@ -40,6 +51,9 @@ export function findCurrentUnmaskedContext(fiber: Fiber): any {
     //     'This error is likely caused by a bug in React. Please file an issue.',
     // );
 
+    /**
+     * 从下往上找到最近的ContextProvider，并返回当前merge过后的context值
+     */
     let node: Fiber | null = fiber;
     do {
       switch (node.tag) {

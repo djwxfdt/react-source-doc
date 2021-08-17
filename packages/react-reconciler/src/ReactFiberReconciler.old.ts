@@ -14,7 +14,9 @@ import { ClassComponent } from "./ReactWorkTags";
 
 type OpaqueRoot = FiberRoot;
 
-
+/**
+ * 获取子树的上下文context
+ */
 function getContextForSubtree(
   parentComponent?: React$Component<any, any>,
 ): Object {
@@ -25,6 +27,9 @@ function getContextForSubtree(
   const fiber = getInstance(parentComponent) as Fiber;
   const parentContext = findCurrentUnmaskedContext(fiber);
 
+  /**
+   * 如果当前组件是ContextProvider，要做特殊处理
+   */
   if (fiber.tag === ClassComponent) {
     const Component = fiber.type;
     if (isLegacyContextProvider(Component)) {
@@ -56,7 +61,10 @@ export function createContainer(
   );
 }
 
-
+/**
+ * 
+ * @param container FiberRoot
+ */
 export function updateContainer(
   element: ReactNodeList,
   container: OpaqueRoot,
@@ -68,6 +76,10 @@ export function updateContainer(
   }
   const current = container.current;
   const eventTime = requestEventTime();
+
+  /**
+   * 获得当前更新的优先级，Legacy模式下是SyncLane
+   */
   const lane = requestUpdateLane(current!);
 
   if (enableSchedulingProfiler) {
@@ -75,6 +87,9 @@ export function updateContainer(
   }
 
   const context = getContextForSubtree(parentComponent);
+  /**
+   * 如果当前fiberRoot的context为空，则直接赋值，如果不为空，就放到pendingContext里面
+   */
   if (container.context === null) {
     container.context = context;
   } else {
