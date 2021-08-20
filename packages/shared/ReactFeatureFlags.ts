@@ -48,3 +48,7 @@ export const enableStrictEffects = __DEV__;
 // interleaved event. Remove this flag once we have migrated to the
 // new behavior.
 export const deferRenderPhaseUpdateToNextBatch = false;
+
+// Profiler API accepts a function to be called when a nested update is scheduled.
+// This callback accepts the component type (class instance or function) the update is scheduled for.
+export const enableProfilerNestedUpdateScheduledHook = false;

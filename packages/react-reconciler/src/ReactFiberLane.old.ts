@@ -1,3 +1,5 @@
+import { FiberRoot } from "./ReactInternalTypes";
+
 export type Lanes = number;
 export type Lane = number;
 export type LaneMap<T> = Array<T>;
@@ -84,4 +86,72 @@ export function claimNextTransitionLane(): Lane {
     nextTransitionLane = TransitionLane1;
   }
   return lane;
+}
+
+/**
+ * 获取32位模式下，数值转为二进制之后第一个1的位置
+ */
+function pickArbitraryLaneIndex(lanes: Lanes) {
+  return 31 - clz32(lanes);
+}
+
+
+export function mergeLanes(a: Lanes | Lane, b: Lanes | Lane): Lanes {
+  return a | b;
+}
+
+/**
+ * 获取最外面的赛道的位置
+ */
+function laneToIndex(lane: Lane) {
+  return pickArbitraryLaneIndex(lane);
+}
+
+
+export function markRootUpdated(
+  root: FiberRoot,
+  updateLane: Lane,
+  eventTime: number,
+) {
+  root.pendingLanes |= updateLane;
+
+  // If there are any suspended transitions, it's possible this new update
+  // could unblock them. Clear the suspended lanes so that we can try rendering
+  // them again.
+  //
+  // TODO: We really only need to unsuspend only lanes that are in the
+  // `subtreeLanes` of the updated fiber, or the update lanes of the return
+  // path. This would exclude suspended updates in an unrelated sibling tree,
+  // since there's no way for this update to unblock it.
+  //
+  // We don't do this if the incoming update is idle, because we never process
+  // idle updates until after all the regular updates have finished; there's no
+  // way it could unblock a transition.
+  if (updateLane !== IdleLane) {
+    root.suspendedLanes = NoLanes;
+    root.pingedLanes = NoLanes;
+  }
+
+  const eventTimes = root.eventTimes;
+  const index = laneToIndex(updateLane);
+  // We can always overwrite an existing timestamp because we prefer the most
+  // recent event, and we assume time is monotonically increasing.
+  eventTimes[index] = eventTime;
+}
+
+/**
+ * 获取32位模式下，数值转为二进制之后前面0的个数
+ */
+const clz32 = Math.clz32 ? Math.clz32 : clz32Fallback;
+
+// Count leading zeros. Only used on lanes, so assume input is an integer.
+// Based on:
+// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/clz32
+const log = Math.log;
+const LN2 = Math.LN2;
+function clz32Fallback(lanes: Lanes | Lane) {
+  if (lanes === 0) {
+    return 32;
+  }
+  return (31 - ((log(lanes) / LN2) | 0)) | 0;
 }
