@@ -1,3 +1,4 @@
+import { deferRenderPhaseUpdateToNextBatch } from "../../shared/ReactFeatureFlags";
 import { getCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { getCurrentEventPriority } from "./ReactFiberHostConfig";
 import { claimNextTransitionLane, Lane, Lanes, NoLane, NoLanes, NoTimestamp, SyncLane } from "./ReactFiberLane.old";
@@ -85,4 +86,23 @@ export function requestUpdateLane(fiber: Fiber): Lane {
    */
   const eventLane: Lane = getCurrentEventPriority();
   return eventLane;
+}
+
+/**
+ * 判断当前属于渲染过程中的update，通常由于渲染过程中用户输入导致
+ */
+export function isInterleavedUpdate(fiber: Fiber, lane: Lane) {
+  return (
+    // TODO: Optimize slightly by comparing to root that fiber belongs to.
+    // Requires some refactoring. Not a big deal though since it's rare for
+    // concurrent apps to have more than a single root.
+    workInProgressRoot !== null &&
+    (fiber.mode & ConcurrentMode) !== NoMode &&
+    // If this is a render phase update (i.e. UNSAFE_componentWillReceiveProps),
+    // then don't treat this as an interleaved update. This pattern is
+    // accompanied by a warning but we haven't fully deprecated it yet. We can
+    // remove once the deferRenderPhaseUpdateToNextBatch flag is enabled.
+    (deferRenderPhaseUpdateToNextBatch ||
+      (executionContext & RenderContext) === NoContext)
+  );
 }

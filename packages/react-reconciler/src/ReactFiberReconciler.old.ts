@@ -11,6 +11,7 @@ import { RootTag } from "./ReactRootTags";
 import { markRenderScheduled } from "./SchedulingProfiler";
 import { get as getInstance } from '../../shared/ReactInstanceMap'
 import { ClassComponent } from "./ReactWorkTags";
+import { createUpdate, enqueueUpdate } from "./ReactUpdateQueue.old";
 
 type OpaqueRoot = FiberRoot;
 
@@ -74,7 +75,7 @@ export function updateContainer(
   if (__DEV__) {
     onScheduleRoot(container, element);
   }
-  const current = container.current;
+  const current = container.current!;
   const eventTime = requestEventTime();
 
   /**
@@ -114,10 +115,10 @@ export function updateContainer(
   //   }
   // }
 
-  // const update = createUpdate(eventTime, lane);
+  const update = createUpdate(eventTime, lane);
   // // Caution: React DevTools currently depends on this property
   // // being called "element".
-  // update.payload = {element};
+  update.payload = {element};
 
   // callback = callback === undefined ? null : callback;
   // if (callback !== null) {
@@ -133,7 +134,7 @@ export function updateContainer(
   //   update.callback = callback;
   // }
 
-  // enqueueUpdate(current, update, lane);
+  enqueueUpdate(current, update, lane);
   // const root = scheduleUpdateOnFiber(current, lane, eventTime);
   // if (root !== null) {
   //   entangleTransitions(root, current, lane);
