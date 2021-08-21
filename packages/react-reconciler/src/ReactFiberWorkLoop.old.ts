@@ -350,18 +350,31 @@ export function scheduleUpdateOnFiber(
 
 /**
  * 这个方法实际上每次更新都会进来，从fiberRoot开始执行任务调度
- * 会和调度模块进行交互
+ * 在这里会和调度模块进行交互，执行任务调度
  */
 function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
+
+  /**
+   * 获取上次的调度任务，在本方法尾部会有赋值，请注意联系起来
+   */
   const existingCallbackNode = root.callbackNode;
 
+  // 检查当前更新任务队列，将过期任务放入root.expiredLanes中，以便立即更新
   markStarvedLanesAsExpired(root, currentTime);
 
+  /**
+   * 获取当前的渲染优先级
+   */
   const nextLanes = getNextLanes(
     root,
     root === workInProgressRoot ? workInProgressRootRenderLanes : NoLanes,
   );
 
+  /**
+   * TODO
+   * 如果当前不存在渲染优先级，也就是说当前没有渲染任务，就退出。
+   * 如果有任务实际上肯定有渲染优先级，那既然进来了，代表肯定有任务，为什么还可能没有渲染优先级呢，我也不知道，待仔细分析。
+   */
   if (nextLanes === NoLanes) {
     // Special case: There's nothing to work on.
     if (existingCallbackNode !== null) {
@@ -372,10 +385,19 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
     return;
   }
 
+  /**
+   * 根据渲染优先级转换为调度模块能够识别的调度优先级，请注意，React的渲染优先级和调度优先级是独立的，需要通过转换方法进行转换
+   */
   const newCallbackPriority = getHighestPriorityLane(nextLanes);
 
+  /**
+   * 获取上次的渲染优先级
+   */
   const existingCallbackPriority = root.callbackPriority;
 
+  /**
+   * 如果本次的优先级和上次一样，那就退出,代表可以服用上一次的调度任务。
+   */
   if (
     existingCallbackPriority === newCallbackPriority &&
     // Special case related to `act`. If the currently scheduled task is a

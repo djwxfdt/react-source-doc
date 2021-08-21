@@ -5,7 +5,7 @@ import { onScheduleRoot } from "./ReactFiberDevToolsHook.old";
 import { Container } from "./ReactFiberHostConfig";
 import { Lane } from "./ReactFiberLane.old";
 import { createFiberRoot } from "./ReactFiberRoot.old";
-import { requestEventTime, requestUpdateLane } from "./ReactFiberWorkLoop.old";
+import { requestEventTime, requestUpdateLane, scheduleUpdateOnFiber } from "./ReactFiberWorkLoop.old";
 import { Fiber, FiberRoot, SuspenseHydrationCallbacks } from "./ReactInternalTypes";
 import { RootTag } from "./ReactRootTags";
 import { markRenderScheduled } from "./SchedulingProfiler";
@@ -64,7 +64,7 @@ export function createContainer(
 
 /**
  * 
- * @param container FiberRoot
+ * 从fiberRoot节点开始更新，执行ReactDOM.render的时候就会调用
  */
 export function updateContainer(
   element: ReactNodeList,
@@ -135,7 +135,7 @@ export function updateContainer(
   // }
 
   enqueueUpdate(current, update, lane);
-  // const root = scheduleUpdateOnFiber(current, lane, eventTime);
+  const root = scheduleUpdateOnFiber(current, lane, eventTime);
   // if (root !== null) {
   //   entangleTransitions(root, current, lane);
   // }
