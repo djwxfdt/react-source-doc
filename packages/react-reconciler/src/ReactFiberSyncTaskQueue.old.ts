@@ -61,7 +61,7 @@
        // queue is in the render or commit phases.
        setCurrentUpdatePriority(DiscreteEventPriority);
        for (; i < queue.length; i++) {
-         let callback = queue[i];
+         let callback: SchedulerCallback | null = queue[i];
          do {
            callback = callback(isSync);
          } while (callback !== null);

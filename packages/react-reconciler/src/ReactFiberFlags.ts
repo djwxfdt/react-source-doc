@@ -19,3 +19,5 @@ export const Passive = /*                      */ 0b00000000000010000000000;
 export const Hydrating = /*                    */ 0b00000000000100000000000;
 export const HydratingAndUpdate = /*           */ Hydrating | Update;
 export const Visibility = /*                   */ 0b00000000001000000000000;
+
+export const PassiveMask = Passive | ChildDeletion;

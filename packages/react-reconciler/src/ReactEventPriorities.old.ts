@@ -19,6 +19,12 @@ export const DefaultEventPriority: EventPriority = DefaultLane;
 export const IdleEventPriority: EventPriority = IdleLane;
 
 
+export function lowerEventPriority(
+  a: EventPriority,
+  b: EventPriority,
+): EventPriority {
+  return a === 0 || a > b ? a : b;
+}
 
 export function isHigherEventPriority(
   a: EventPriority,

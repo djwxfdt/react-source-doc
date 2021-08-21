@@ -3,6 +3,9 @@ import { FiberRoot } from "../../../react-reconciler/src/ReactInternalTypes";
 import { DOMEventName } from "../events/DOMEventNames";
 import { getEventPriority } from "../events/ReactDOMEventListener";
 
+export {detachDeletedInstance} from './ReactDOMComponentTree';
+
+
 export type Container = (Element & {_reactRootContainer?: FiberRoot}) | (Document & {_reactRootContainer?: FiberRoot});
 
 export type TimeoutHandle = any;
@@ -11,6 +14,7 @@ export type NoTimeout = -1;
 
 export type SuspenseInstance = Comment & {_reactRetry?: () => void};
 
+export type Instance = Element;
 
 export const noTimeout = -1;
 

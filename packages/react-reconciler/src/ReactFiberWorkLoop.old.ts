@@ -1,5 +1,5 @@
-import { deferRenderPhaseUpdateToNextBatch, enableProfilerNestedUpdateScheduledHook, enableProfilerTimer, enableUpdaterTracking } from "../../shared/ReactFeatureFlags";
-import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority } from "./ReactEventPriorities.old";
+import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCommitHooks, enableProfilerNestedUpdatePhase, enableProfilerNestedUpdateScheduledHook, enableProfilerTimer, enableSchedulingProfiler, enableStrictEffects, enableUpdaterTracking } from "../../shared/ReactFeatureFlags";
+import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Hydrating, NoFlags, Placement } from "./ReactFiberFlags";
 import { getCurrentEventPriority, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
@@ -31,6 +31,10 @@ import ReactSharedInternals from '../../shared/ReactSharedInternals'
 import { flushSyncCallbacks, flushSyncCallbacksOnlyInLegacyMode, scheduleLegacySyncCallback, scheduleSyncCallback } from './ReactFiberSyncTaskQueue.old'
 import { LegacyRoot } from "./ReactRootTags";
 import { PriorityLevel } from "../../scheduler/src/SchedulerPriorities";
+import ReactCurrentBatchConfig from "../../react/src/ReactCurrentBatchConfig";
+import { logPassiveEffectsStarted, logPassiveEffectsStopped } from "./DebugTracing";
+import { markPassiveEffectsStarted, markPassiveEffectsStopped } from "./SchedulingProfiler";
+import { commitPassiveMountEffects, commitPassiveUnmountEffects } from "./ReactFiberCommitWork.old";
 
 const {
   ReactCurrentActQueue,
@@ -76,12 +80,23 @@ let currentEventTime: number = NoTimestamp;
 // to track which root is currently committing layout effects.
 let rootCommittingMutationOrLayoutEffects: FiberRoot | null = null;
 
+let rootWithPendingPassiveEffects: FiberRoot | null = null;
+
+let pendingPassiveEffectsLanes: Lanes = NoLanes;
+let pendingPassiveProfilerEffects: Array<Fiber> = [];
+
+const NESTED_PASSIVE_UPDATE_LIMIT = 50;
+let nestedPassiveUpdateCount: number = 0;
 
 // 在更新期间触发的更新，保存他们的优先级
 let workInProgressRootUpdatedLanes: Lanes = NoLanes;
 
 // Lanes that were pinged (in an interleaved event) during this render.
 let workInProgressRootPingedLanes: Lanes = NoLanes;
+
+// Dev only flag that tracks if passive effects are currently being flushed.
+// We warn about state updates for unmounted components differently in this case.
+let isFlushingPassiveEffects = false;
 
 const fakeActCallbackNode = {};
 function scheduleCallback(priorityLevel: PriorityLevel, callback: Function) {
@@ -396,7 +411,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   const existingCallbackPriority = root.callbackPriority;
 
   /**
-   * 如果本次的优先级和上次一样，那就退出,代表可以服用上一次的调度任务。
+   * 如果本次的优先级和上次一样，那就退出,代表可以复用上一次的调度任务。
    */
   if (
     existingCallbackPriority === newCallbackPriority &&
@@ -433,9 +448,12 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
 
   let newCallbackNode;
+
+  /**
+   * 最高优先级的任务走performSyncWorkOnRoot其它优先级的走performConcurrentWorkOnRoot
+   */
   if (newCallbackPriority === SyncLane) {
-    // Special case: Sync React callbacks are scheduled on a special
-    // internal queue
+    // 下面两个是一样的，只是LegacyMode模式下，做了一个标记
     if (root.tag === LegacyRoot) {
       if (__DEV__ && ReactCurrentActQueue.isBatchingLegacy !== null) {
         ReactCurrentActQueue.didScheduleLegacyUpdate = true;
@@ -444,6 +462,11 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
     } else {
       scheduleSyncCallback(performSyncWorkOnRoot.bind(null, root));
     }
+
+    /**
+     * TODO
+     * web 环境下始终为true，else的部分我们先直接忽略
+     */
     if (supportsMicrotasks) {
       // Flush the queue in a microtask.
       if (__DEV__ && ReactCurrentActQueue.current !== null) {
@@ -489,7 +512,122 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 }
 
 
+function flushPassiveEffectsImpl() {
+  if (rootWithPendingPassiveEffects === null) {
+    return false;
+  }
+
+  const root = rootWithPendingPassiveEffects;
+  const lanes = pendingPassiveEffectsLanes;
+  rootWithPendingPassiveEffects = null;
+  // TODO: This is sometimes out of sync with rootWithPendingPassiveEffects.
+  // Figure out why and fix it. It's not causing any known issues (probably
+  // because it's only used for profiling), but it's a refactor hazard.
+  pendingPassiveEffectsLanes = NoLanes;
+
+
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      logPassiveEffectsStarted(lanes);
+    }
+  }
+
+  if (enableSchedulingProfiler) {
+    markPassiveEffectsStarted(lanes);
+  }
+
+  if (__DEV__) {
+    isFlushingPassiveEffects = true;
+  }
+
+  const prevExecutionContext = executionContext;
+  executionContext |= CommitContext;
+
+  commitPassiveUnmountEffects(root.current!);
+  commitPassiveMountEffects(root, root.current!);
+
+  // TODO: Move to commitPassiveMountEffects
+  if (enableProfilerTimer && enableProfilerCommitHooks) {
+    const profilerEffects = pendingPassiveProfilerEffects;
+    pendingPassiveProfilerEffects = [];
+    for (let i = 0; i < profilerEffects.length; i++) {
+      const fiber = profilerEffects[i] as Fiber;
+      commitPassiveEffectDurations(root, fiber);
+    }
+  }
+
+  if (__DEV__) {
+    isFlushingPassiveEffects = false;
+  }
+
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      logPassiveEffectsStopped();
+    }
+  }
+
+  if (enableSchedulingProfiler) {
+    markPassiveEffectsStopped();
+  }
+
+  if (__DEV__ && enableStrictEffects) {
+    commitDoubleInvokeEffectsInDEV(root.current, true);
+  }
+
+  executionContext = prevExecutionContext;
+
+  flushSyncCallbacks();
+
+  // If additional passive effects were scheduled, increment a counter. If this
+  // exceeds the limit, we'll fire a warning.
+  nestedPassiveUpdateCount =
+    rootWithPendingPassiveEffects === null ? 0 : nestedPassiveUpdateCount + 1;
+
+  // TODO: Move to commitPassiveMountEffects
+  onPostCommitRootDevTools(root);
+  if (enableProfilerTimer && enableProfilerCommitHooks) {
+    const stateNode = root.current!.stateNode;
+    stateNode.effectDuration = 0;
+    stateNode.passiveEffectDuration = 0;
+  }
+
+  return true;
+}
+
+
+/**
+ * 执行useEffect?
+ */
+export function flushPassiveEffects(): boolean {
+  // Returns whether passive effects were flushed.
+  // TODO: Combine this check with the one in flushPassiveEFfectsImpl. We should
+  // probably just combine the two functions. I believe they were only separate
+  // in the first place because we used to wrap it with
+  // `Scheduler.runWithPriority`, which accepts a function. But now we track the
+  // priority within React itself, so we can mutate the variable directly.
+  if (rootWithPendingPassiveEffects !== null) {
+    const renderPriority = lanesToEventPriority(pendingPassiveEffectsLanes);
+    const priority = lowerEventPriority(DefaultEventPriority, renderPriority);
+    const prevTransition = ReactCurrentBatchConfig.transition;
+    const previousPriority = getCurrentUpdatePriority();
+    try {
+      ReactCurrentBatchConfig.transition = 0;
+      setCurrentUpdatePriority(priority);
+      return flushPassiveEffectsImpl();
+    } finally {
+      setCurrentUpdatePriority(previousPriority);
+      ReactCurrentBatchConfig.transition = prevTransition;
+    }
+  }
+  return false;
+}
+
 function performSyncWorkOnRoot(root: FiberRoot) {
+  if (enableProfilerTimer && enableProfilerNestedUpdatePhase) {
+    // syncNestedUpdateFlag();
+  }
+  flushPassiveEffects();
+
   return null;
 }
 

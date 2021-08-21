@@ -1,5 +1,5 @@
 import { enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
-import { Lane } from "./ReactFiberLane.old";
+import { Lane, Lanes } from "./ReactFiberLane.old";
 
 
 let supportsUserTimingV3 = false;
@@ -14,6 +14,22 @@ export function markRenderScheduled(lane: Lane): void {
   if (enableSchedulingProfiler) {
     if (supportsUserTimingV3) {
       markAndClear(`--schedule-render-${lane}`);
+    }
+  }
+}
+
+export function markPassiveEffectsStarted(lanes: Lanes): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      markAndClear(`--passive-effects-start-${lanes}`);
+    }
+  }
+}
+
+export function markPassiveEffectsStopped(): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      markAndClear('--passive-effects-stop');
     }
   }
 }

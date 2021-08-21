@@ -1,4 +1,17 @@
 import { Lane, Lanes } from "./ReactFiberLane.old";
+import { HookFlags } from "./ReactHookEffectTags";
+
+export type Effect = {
+  tag: HookFlags,
+  create: () => (() => void) | void,
+  destroy: (() => void) | void,
+  deps: Array<mixed> | null,
+  next: Effect,
+};
+
+
+export type FunctionComponentUpdateQueue = {lastEffect: Effect | null};
+
 
 type Update<S, A> = {
   lane: Lane,
