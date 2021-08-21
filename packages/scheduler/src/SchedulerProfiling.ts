@@ -27,6 +27,20 @@ let runIdCounter: number = 0;
 
 const MAX_EVENT_LOG_SIZE = 524288; // Equivalent to 2 megabytes
 
+export function markTaskCanceled(
+  task: {
+    id: number,
+    priorityLevel: PriorityLevel,
+  },
+  ms: number,
+) {
+  if (enableProfiling) {
+    if (eventLog !== null) {
+      logEvent([TaskCancelEvent, ms * 1000, task.id]);
+    }
+  }
+}
+
 export function stopLoggingProfilingEvents(): ArrayBuffer | null {
   const buffer = eventLogBuffer;
   eventLogSize = 0;

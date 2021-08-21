@@ -24,3 +24,28 @@ export function getCurrentEventPriority() {
   }
   return getEventPriority(currentEvent.type as DOMEventName);
 }
+
+export const scheduleTimeout: any = typeof setTimeout === 'function' ? setTimeout : undefined
+const localPromise = typeof Promise === 'function' ? Promise : undefined;
+
+// -------------------
+//     Microtasks
+// -------------------
+export const supportsMicrotasks = true;
+export const scheduleMicrotask: any =
+  typeof queueMicrotask === 'function'
+    ? queueMicrotask
+    : typeof localPromise !== 'undefined'
+    ? (callback: (v: any) => void) =>
+        localPromise
+          .resolve(null)
+          .then(callback)
+          .catch(handleErrorInNextTick)
+    : scheduleTimeout; // TODO: Determine the best fallback here.
+
+
+function handleErrorInNextTick(error: Error) {
+  setTimeout(() => {
+    throw error;
+  });
+}

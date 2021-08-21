@@ -1,5 +1,5 @@
 import { Heap, peek, pop, push, TaskNode } from "../SchedulerMinHeap";
-import { markSchedulerSuspended, markSchedulerUnsuspended, markTaskCompleted, markTaskErrored, markTaskRun, markTaskStart, markTaskYield } from "../SchedulerProfiling";
+import { markSchedulerSuspended, markSchedulerUnsuspended, markTaskCanceled, markTaskCompleted, markTaskErrored, markTaskRun, markTaskStart, markTaskYield } from "../SchedulerProfiling";
 import { enableIsInputPending, enableProfiling, enableSchedulerDebugging } from "../SchedulerFeatureFlags";
 import { IdlePriority, ImmediatePriority, LowPriority, NormalPriority, PriorityLevel, UserBlockingPriority } from "../SchedulerPriorities";
 
@@ -147,6 +147,21 @@ let deadline = 0;
  */
 let needsPaint = false;
 
+
+function unstable_cancelCallback(task: TaskNode) {
+  if (enableProfiling) {
+    if (task.isQueued) {
+      const currentTime = getCurrentTime();
+      markTaskCanceled(task, currentTime);
+      task.isQueued = false;
+    }
+  }
+
+  // Null out the callback to indicate the task has been canceled. (Can't
+  // remove from the queue because you can't remove arbitrary nodes from an
+  // array based heap, only the first one.)
+  task.callback = null;
+}
 
 /**
  * 执行回调任务，直至到deadline
@@ -622,6 +637,7 @@ export {
   IdlePriority as unstable_IdlePriority,
   LowPriority as unstable_LowPriority,
 
+  unstable_cancelCallback,
   unstable_runWithPriority,
   unstable_scheduleCallback,
   shouldYieldToHost as unstable_shouldYield,
