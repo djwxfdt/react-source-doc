@@ -21,3 +21,7 @@ export const HydratingAndUpdate = /*           */ Hydrating | Update;
 export const Visibility = /*                   */ 0b00000000001000000000000;
 
 export const PassiveMask = Passive | ChildDeletion;
+
+
+export const MountLayoutDev = /*               */ 0b01000000000000000000000;
+export const MountPassiveDev = /*              */ 0b10000000000000000000000;

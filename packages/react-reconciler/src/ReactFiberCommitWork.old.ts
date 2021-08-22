@@ -1,4 +1,4 @@
-import { deletedTreeCleanUpLevel, enableProfilerCommitHooks, enableProfilerTimer } from "../../shared/ReactFeatureFlags";
+import { deletedTreeCleanUpLevel, enableProfilerCommitHooks, enableProfilerTimer, enableStrictEffects } from "../../shared/ReactFeatureFlags";
 import { ChildDeletion, NoFlags, Passive, PassiveMask } from "./ReactFiberFlags";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
 import {
@@ -6,8 +6,8 @@ import {
   setCurrentFiber as setCurrentDebugFiberInDEV,
 } from './ReactCurrentFiber';
 import { ProfileMode } from "./ReactTypeOfMode";
-import { FunctionComponent, ForwardRef, SimpleMemoComponent, HostComponent } from "./ReactWorkTags";
-import { startPassiveEffectTimer } from "./ReactProfilerTimer.old";
+import { FunctionComponent, ForwardRef, SimpleMemoComponent, HostComponent, ClassComponent } from "./ReactWorkTags";
+import { recordLayoutEffectDuration, recordPassiveEffectDuration, startLayoutEffectTimer, startPassiveEffectTimer } from "./ReactProfilerTimer.old";
 import { FunctionComponentUpdateQueue } from "./ReactFiberHooks.old";
 import { detachDeletedInstance } from "./ReactFiberHostConfig";
 import {
@@ -15,10 +15,45 @@ import {
   HasEffect as HookHasEffect,
   Layout as HookLayout,
   Passive as HookPassive,
+  HookFlags,
 } from './ReactHookEffectTags';
 import { clearCaughtError, invokeGuardedCallback } from "../../shared/ReactErrorUtils";
+import { captureCommitPhaseError } from "./ReactFiberWorkLoop.old";
 
 let nextEffect: Fiber | null = null;
+
+
+function safelyCallComponentWillUnmount(
+  current: Fiber,
+  nearestMountedAncestor: Fiber | null,
+  instance: any,
+) {
+  try {
+    callComponentWillUnmountWithTimer(current, instance);
+  } catch (error) {
+    reportUncaughtErrorInDEV(error);
+    captureCommitPhaseError(current, nearestMountedAncestor, error);
+  }
+}
+
+const callComponentWillUnmountWithTimer = function(current: Fiber, instance: any) {
+  instance.props = current.memoizedProps;
+  instance.state = current.memoizedState;
+  if (
+    enableProfilerTimer &&
+    enableProfilerCommitHooks &&
+    current.mode & ProfileMode
+  ) {
+    try {
+      startLayoutEffectTimer();
+      instance.componentWillUnmount();
+    } finally {
+      recordLayoutEffectDuration(current);
+    }
+  } else {
+    instance.componentWillUnmount();
+  }
+};
 
 
 function reportUncaughtErrorInDEV(error: Error) {
@@ -34,6 +69,20 @@ function reportUncaughtErrorInDEV(error: Error) {
     clearCaughtError();
   }
 }
+
+function safelyCallDestroy(
+  current: Fiber,
+  nearestMountedAncestor: Fiber | null,
+  destroy: () => void,
+) {
+  try {
+    destroy();
+  } catch (error) {
+    reportUncaughtErrorInDEV(error);
+    captureCommitPhaseError(current, nearestMountedAncestor, error);
+  }
+}
+
 
 let didWarnWrongReturnPointer = false;
 function ensureCorrectReturnPointer(fiber: Fiber, expectedReturnFiber: Fiber) {
@@ -302,7 +351,7 @@ function commitPassiveUnmountEffectsInsideOfDeletedTree_complete(
 
 
 function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
-  const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
+  const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue);
   const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
   if (lastEffect !== null) {
     const firstEffect = lastEffect.next;
@@ -321,7 +370,7 @@ function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
               addendum =
                 ' You returned null. If your effect does not require clean ' +
                 'up, return undefined (or nothing).';
-            } else if (typeof destroy.then === 'function') {
+            } else if (typeof (destroy as Promise<any>).then === 'function') {
               addendum =
                 '\n\nIt looks like you wrote useEffect(async () => ...) or returned a Promise. ' +
                 'Instead, write the async function inside your effect ' +
@@ -425,6 +474,184 @@ function detachFiberAfterEffects(fiber: Fiber) {
       fiber.stateNode = null;
       // TODO: Move to `commitPassiveUnmountInsideDeletedTreeOnFiber` instead.
       fiber.updateQueue = null;
+    }
+  }
+}
+
+function commitHookEffectListUnmount(
+  flags: HookFlags,
+  finishedWork: Fiber,
+  nearestMountedAncestor: Fiber | null,
+) {
+  const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue);
+  const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
+  if (lastEffect !== null) {
+    const firstEffect = lastEffect.next;
+    let effect = firstEffect;
+    do {
+      if ((effect.tag & flags) === flags) {
+        // Unmount
+        const destroy = effect.destroy;
+        effect.destroy = undefined;
+        if (destroy !== undefined) {
+          safelyCallDestroy(finishedWork, nearestMountedAncestor, destroy);
+        }
+      }
+      effect = effect.next;
+    } while (effect !== firstEffect);
+  }
+}
+
+function commitPassiveUnmountEffects_complete() {
+  while (nextEffect !== null) {
+    const fiber = nextEffect;
+    if ((fiber.flags & Passive) !== NoFlags) {
+      setCurrentDebugFiberInDEV(fiber);
+      commitPassiveUnmountOnFiber(fiber);
+      resetCurrentDebugFiberInDEV();
+    }
+
+    const sibling = fiber.sibling;
+    if (sibling !== null) {
+      ensureCorrectReturnPointer(sibling, fiber.return!);
+      nextEffect = sibling;
+      return;
+    }
+
+    nextEffect = fiber.return;
+  }
+}
+
+function commitPassiveUnmountOnFiber(finishedWork: Fiber): void {
+  switch (finishedWork.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case SimpleMemoComponent: {
+      if (
+        enableProfilerTimer &&
+        enableProfilerCommitHooks &&
+        finishedWork.mode & ProfileMode
+      ) {
+        startPassiveEffectTimer();
+        commitHookEffectListUnmount(
+          HookPassive | HookHasEffect,
+          finishedWork,
+          finishedWork.return,
+        );
+        recordPassiveEffectDuration(finishedWork);
+      } else {
+        commitHookEffectListUnmount(
+          HookPassive | HookHasEffect,
+          finishedWork,
+          finishedWork.return,
+        );
+      }
+      break;
+    }
+  }
+}
+
+
+export function invokeLayoutEffectUnmountInDEV(fiber: Fiber): void {
+  if (__DEV__ && enableStrictEffects) {
+    // We don't need to re-check StrictEffectsMode here.
+    // This function is only called if that check has already passed.
+    switch (fiber.tag) {
+      case FunctionComponent:
+      case ForwardRef:
+      case SimpleMemoComponent: {
+        try {
+          commitHookEffectListUnmount(
+            HookLayout | HookHasEffect,
+            fiber,
+            fiber.return,
+          );
+        } catch (error) {
+          reportUncaughtErrorInDEV(error);
+          captureCommitPhaseError(fiber, fiber.return, error);
+        }
+        break;
+      }
+      case ClassComponent: {
+        const instance = fiber.stateNode;
+        if (typeof instance.componentWillUnmount === 'function') {
+          safelyCallComponentWillUnmount(fiber, fiber.return, instance);
+        }
+        break;
+      }
+    }
+  }
+}
+
+export function invokePassiveEffectUnmountInDEV(fiber: Fiber): void {
+  if (__DEV__ && enableStrictEffects) {
+    // We don't need to re-check StrictEffectsMode here.
+    // This function is only called if that check has already passed.
+    switch (fiber.tag) {
+      case FunctionComponent:
+      case ForwardRef:
+      case SimpleMemoComponent: {
+        try {
+          commitHookEffectListUnmount(
+            HookPassive | HookHasEffect,
+            fiber,
+            fiber.return,
+          );
+        } catch (error) {
+          reportUncaughtErrorInDEV(error);
+          captureCommitPhaseError(fiber, fiber.return, error);
+        }
+      }
+    }
+  }
+}
+
+export function invokeLayoutEffectMountInDEV(fiber: Fiber): void {
+  if (__DEV__ && enableStrictEffects) {
+    // We don't need to re-check StrictEffectsMode here.
+    // This function is only called if that check has already passed.
+    switch (fiber.tag) {
+      case FunctionComponent:
+      case ForwardRef:
+      case SimpleMemoComponent: {
+        try {
+          commitHookEffectListMount(HookLayout | HookHasEffect, fiber);
+        } catch (error) {
+          reportUncaughtErrorInDEV(error);
+          captureCommitPhaseError(fiber, fiber.return, error);
+        }
+        break;
+      }
+      case ClassComponent: {
+        const instance = fiber.stateNode;
+        try {
+          instance.componentDidMount();
+        } catch (error) {
+          reportUncaughtErrorInDEV(error);
+          captureCommitPhaseError(fiber, fiber.return, error);
+        }
+        break;
+      }
+    }
+  }
+}
+
+export function invokePassiveEffectMountInDEV(fiber: Fiber): void {
+  if (__DEV__ && enableStrictEffects) {
+    // We don't need to re-check StrictEffectsMode here.
+    // This function is only called if that check has already passed.
+    switch (fiber.tag) {
+      case FunctionComponent:
+      case ForwardRef:
+      case SimpleMemoComponent: {
+        try {
+          commitHookEffectListMount(HookPassive | HookHasEffect, fiber);
+        } catch (error) {
+          reportUncaughtErrorInDEV(error);
+          captureCommitPhaseError(fiber, fiber.return, error);
+        }
+        break;
+      }
     }
   }
 }

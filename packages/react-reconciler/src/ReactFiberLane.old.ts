@@ -69,6 +69,9 @@ export const NoTimestamp = -1;
 
 let nextTransitionLane: Lane = TransitionLane1;
 
+export function includesSomeLane(a: Lanes | Lane, b: Lanes | Lane) {
+  return (a & b) !== NoLanes;
+}
 
 export function createLaneMap<T>(initial: T): LaneMap<T> {
   // Intentionally pushing one by one.

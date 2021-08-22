@@ -66,3 +66,5 @@ export const enableComponentStackLocations = true;
 
 export const disableNativeComponentFrames = false;
 
+
+export const skipUnmountedBoundaries = false;
