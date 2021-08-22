@@ -2,6 +2,7 @@ import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { getStackByFiberInDevAndProd } from "./ReactFiberComponentStack";
 import { Fiber } from "./ReactInternalTypes";
 
+
 const ReactDebugCurrentFrame = ReactSharedInternals.ReactDebugCurrentFrame;
 
 export let current: Fiber | null = null;

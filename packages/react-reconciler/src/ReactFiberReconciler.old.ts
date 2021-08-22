@@ -11,7 +11,22 @@ import { RootTag } from "./ReactRootTags";
 import { markRenderScheduled } from "./SchedulingProfiler";
 import { get as getInstance } from '../../shared/ReactInstanceMap'
 import { ClassComponent } from "./ReactWorkTags";
-import { createUpdate, enqueueUpdate } from "./ReactUpdateQueue.old";
+import { createUpdate, enqueueUpdate, entangleTransitions } from "./ReactUpdateQueue.old";
+import getComponentNameFromFiber from "./getComponentNameFromFiber";
+import {
+  isRendering as ReactCurrentFiberIsRendering,
+  current as ReactCurrentFiberCurrent,
+  resetCurrentFiber as resetCurrentDebugFiberInDEV,
+  setCurrentFiber as setCurrentDebugFiberInDEV,
+} from './ReactCurrentFiber';
+
+let didWarnAboutNestedUpdates = false;
+let didWarnAboutFindNodeInStrictMode;
+
+if (__DEV__) {
+  didWarnAboutNestedUpdates = false;
+  didWarnAboutFindNodeInStrictMode = {};
+}
 
 type OpaqueRoot = FiberRoot;
 
@@ -97,48 +112,52 @@ export function updateContainer(
     container.pendingContext = context;
   }
 
-  // TODO
-  // if (__DEV__) {
-  //   if (
-  //     ReactCurrentFiberIsRendering &&
-  //     ReactCurrentFiberCurrent !== null &&
-  //     !didWarnAboutNestedUpdates
-  //   ) {
-  //     didWarnAboutNestedUpdates = true;
-  //     console.error(
-  //       'Render methods should be a pure function of props and state; ' +
-  //         'triggering nested component updates from render is not allowed. ' +
-  //         'If necessary, trigger nested updates in componentDidUpdate.\n\n' +
-  //         'Check the render method of %s.',
-  //       getComponentNameFromFiber(ReactCurrentFiberCurrent) || 'Unknown',
-  //     );
-  //   }
-  // }
+  if (__DEV__) {
+    if (
+      ReactCurrentFiberIsRendering &&
+      ReactCurrentFiberCurrent !== null &&
+      !didWarnAboutNestedUpdates
+    ) {
+      didWarnAboutNestedUpdates = true;
+      console.error(
+        'Render methods should be a pure function of props and state; ' +
+          'triggering nested component updates from render is not allowed. ' +
+          'If necessary, trigger nested updates in componentDidUpdate.\n\n' +
+          'Check the render method of %s.',
+        getComponentNameFromFiber(ReactCurrentFiberCurrent) || 'Unknown',
+      );
+    }
+  }
 
+  /**
+   * 里面没做啥，就创建了一个Update对象，不用点进去看了
+   */
   const update = createUpdate(eventTime, lane);
   // // Caution: React DevTools currently depends on this property
   // // being called "element".
   update.payload = {element};
 
-  // callback = callback === undefined ? null : callback;
-  // if (callback !== null) {
-  //   if (__DEV__) {
-  //     if (typeof callback !== 'function') {
-  //       console.error(
-  //         'render(...): Expected the last optional `callback` argument to be a ' +
-  //           'function. Instead received: %s.',
-  //         callback,
-  //       );
-  //     }
-  //   }
-  //   update.callback = callback;
-  // }
+  callback = callback === undefined ? null : callback;
+  if (callback !== null) {
+    if (__DEV__) {
+      if (typeof callback !== 'function') {
+        console.error(
+          'render(...): Expected the last optional `callback` argument to be a ' +
+            'function. Instead received: %s.',
+          callback,
+        );
+      }
+    }
+    update.callback = callback;
+  }
 
   enqueueUpdate(current, update, lane);
+
+  // 从这个方法下去就是个无底洞了
   const root = scheduleUpdateOnFiber(current, lane, eventTime);
-  // if (root !== null) {
-  //   entangleTransitions(root, current, lane);
-  // }
+  if (root !== null) {
+    entangleTransitions(root, current, lane);
+  }
 
   return lane;
 }

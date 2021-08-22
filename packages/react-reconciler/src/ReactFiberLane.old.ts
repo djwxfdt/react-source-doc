@@ -69,6 +69,10 @@ export const NoTimestamp = -1;
 
 let nextTransitionLane: Lane = TransitionLane1;
 
+export function intersectLanes(a: Lanes | Lane, b: Lanes | Lane): Lanes {
+  return a & b;
+}
+
 export function includesSomeLane(a: Lanes | Lane, b: Lanes | Lane) {
   return (a & b) !== NoLanes;
 }
@@ -82,7 +86,6 @@ export function createLaneMap<T>(initial: T): LaneMap<T> {
   }
   return laneMap;
 }
-
 
 /**
  * 循环事物赛道，一共16个赛道，从最低位开始设置，每个transition占一个赛道，如果满了，就从头开始
@@ -111,7 +114,6 @@ export function mergeLanes(a: Lanes | Lane, b: Lanes | Lane): Lanes {
 export function removeLanes(set: Lanes, subset: Lanes | Lane): Lanes {
   return set & ~subset;
 }
-
 
 /**
  * __PROFILE__开启才会生效
@@ -336,7 +338,6 @@ function getHighestPriorityLanes(lanes: Lanes | Lane): Lanes {
 }
 
 
-
 export function markStarvedLanesAsExpired(
   root: FiberRoot,
   currentTime: number,
@@ -506,4 +507,39 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
 
 export function includesNonIdleWork(lanes: Lanes) {
   return (lanes & NonIdleLanes) !== NoLanes;
+}
+
+export function isTransitionLane(lane: Lane) {
+  return (lane & TransitionLanes) !== 0;
+}
+
+export function markRootEntangled(root: FiberRoot, entangledLanes: Lanes) {
+  // In addition to entangling each of the given lanes with each other, we also
+  // have to consider _transitive_ entanglements. For each lane that is already
+  // entangled with *any* of the given lanes, that lane is now transitively
+  // entangled with *all* the given lanes.
+  //
+  // Translated: If C is entangled with A, then entangling A with B also
+  // entangles C with B.
+  //
+  // If this is hard to grasp, it might help to intentionally break this
+  // function and look at the tests that fail in ReactTransition-test.js. Try
+  // commenting out one of the conditions below.
+
+  const rootEntangledLanes = (root.entangledLanes |= entangledLanes);
+  const entanglements = root.entanglements;
+  let lanes = rootEntangledLanes;
+  while (lanes) {
+    const index = pickArbitraryLaneIndex(lanes);
+    const lane = 1 << index;
+    if (
+      // Is this one of the newly entangled lanes?
+      (lane & entangledLanes) |
+      // Is this lane transitively entangled with the newly entangled lanes?
+      (entanglements[index] & entangledLanes)
+    ) {
+      entanglements[index] |= entangledLanes;
+    }
+    lanes &= ~lane;
+  }
 }
