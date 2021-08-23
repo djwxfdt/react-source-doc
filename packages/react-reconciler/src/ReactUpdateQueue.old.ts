@@ -88,7 +88,12 @@ export function createUpdate(eventTime: number, lane: Lane): Update<any> {
 }
 
 /**
- * 将update放入fiber的更新队列
+ * 将update放入fiber的更新队列，这里会将update形成一个环
+ * 
+ * shared.pending -> update --next--> oldUpdate --next--> update
+ * 
+ * 那为什么要变成环，这里还需要仔细分析。
+ * 
  */
 export function enqueueUpdate<State>(
   fiber: Fiber,

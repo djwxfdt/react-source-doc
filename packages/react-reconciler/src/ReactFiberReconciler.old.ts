@@ -31,7 +31,7 @@ if (__DEV__) {
 type OpaqueRoot = FiberRoot;
 
 /**
- * 获取子树的上下文context
+ * 获取子树的上下文context，这个上下文到底是个啥，目前无法确定
  */
 function getContextForSubtree(
   parentComponent?: React$Component<any, any>,

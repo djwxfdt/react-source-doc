@@ -29,3 +29,10 @@ export type UpdateQueue<S, A> = {
   lastRenderedReducer: ((s: S, a: A) => S) | null,
   lastRenderedState: S | null,
 };
+
+let isUpdatingOpaqueValueInRenderPhase = false;
+export function getIsUpdatingOpaqueValueInRenderPhaseInDEV(): boolean | void {
+  if (__DEV__) {
+    return isUpdatingOpaqueValueInRenderPhase;
+  }
+}

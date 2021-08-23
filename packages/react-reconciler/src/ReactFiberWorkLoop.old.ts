@@ -15,7 +15,7 @@ import {
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
 import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
-import { ClassComponent, HostRoot, Profiler } from "./ReactWorkTags";
+import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, Profiler, SimpleMemoComponent } from "./ReactWorkTags";
 import {
   now,
   scheduleCallback as Scheduler_scheduleCallback,
@@ -50,6 +50,9 @@ import {
 import {
   onPostCommitRoot as onPostCommitRootDevTools,
 } from './ReactFiberDevToolsHook.old';
+import invariant from "../../shared/invariant";
+import getComponentNameFromFiber from "./getComponentNameFromFiber";
+import { getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
 
 const {
   ReactCurrentActQueue,
@@ -71,6 +74,10 @@ const RootErrored = 2;
 const RootSuspended = 3;
 const RootSuspendedWithDelay = 4;
 const RootCompleted = 5;
+
+const NESTED_UPDATE_LIMIT = 50;
+let nestedUpdateCount: number = 0;
+let rootWithNestedUpdates: FiberRoot | null = null;
 
 /**
  * 执行完更新之后，当前fiberRoot节点的退出状态
@@ -291,14 +298,46 @@ export function isInterleavedUpdate(fiber: Fiber, lane: Lane) {
   );
 }
 
+/**
+ * 检查是否出现嵌套调用update,比如在useEffect/componentWillUpdate/componentDidUpdate里面用了setState。
+ */
+function checkForNestedUpdates() {
+  if (nestedUpdateCount > NESTED_UPDATE_LIMIT) {
+    nestedUpdateCount = 0;
+    rootWithNestedUpdates = null;
+    invariant(
+      false,
+      'Maximum update depth exceeded. This can happen when a component ' +
+        'repeatedly calls setState inside componentWillUpdate or ' +
+        'componentDidUpdate. React limits the number of nested updates to ' +
+        'prevent infinite loops.',
+    );
+  }
 
+  if (__DEV__) {
+    if (nestedPassiveUpdateCount > NESTED_PASSIVE_UPDATE_LIMIT) {
+      nestedPassiveUpdateCount = 0;
+      console.error(
+        'Maximum update depth exceeded. This can happen when a component ' +
+          "calls setState inside useEffect, but useEffect either doesn't " +
+          'have a dependency array, or one of the dependencies changes on ' +
+          'every render.',
+      );
+    }
+  }
+}
+
+
+/**
+ * 从当前fiber节点，开始进行调度更新，很重要！！核心代码，无底洞
+ */
 export function scheduleUpdateOnFiber(
   fiber: Fiber,
   lane: Lane,
   eventTime: number,
 ): FiberRoot | null {
-  // checkForNestedUpdates();
-  // warnAboutRenderPhaseUpdatesInDEV(fiber);
+  checkForNestedUpdates();
+  warnAboutRenderPhaseUpdatesInDEV(fiber);
 
   const root = markUpdateLaneFromFiberToRoot(fiber, lane);
   if (root === null) {
@@ -882,4 +921,58 @@ function commitDoubleInvokeEffectsInDEV(
   }
 }
 
+let didWarnAboutUpdateInRender = false;
+let didWarnAboutUpdateInRenderForAnotherComponent: Set<any>;
+if (__DEV__) {
+  didWarnAboutUpdateInRenderForAnotherComponent = new Set();
+}
 
+/**
+ * 这个错误其实挺常见。不知道各位能否复现出来。比如在hook组件中，没用useEffect之类的hook,直接调用setState。
+ */
+function warnAboutRenderPhaseUpdatesInDEV(fiber: Fiber) {
+  if (__DEV__) {
+    if (
+      ReactCurrentDebugFiberIsRenderingInDEV &&
+      (executionContext & RenderContext) !== NoContext &&
+      !getIsUpdatingOpaqueValueInRenderPhaseInDEV()
+    ) {
+      switch (fiber.tag) {
+        case FunctionComponent:
+        case ForwardRef:
+        case SimpleMemoComponent: {
+          const renderingComponentName =
+            (workInProgress && getComponentNameFromFiber(workInProgress)) ||
+            'Unknown';
+          // Dedupe by the rendering component because it's the one that needs to be fixed.
+          const dedupeKey = renderingComponentName;
+          if (!didWarnAboutUpdateInRenderForAnotherComponent.has(dedupeKey)) {
+            didWarnAboutUpdateInRenderForAnotherComponent.add(dedupeKey);
+            const setStateComponentName =
+              getComponentNameFromFiber(fiber) || 'Unknown';
+            console.error(
+              'Cannot update a component (`%s`) while rendering a ' +
+                'different component (`%s`). To locate the bad setState() call inside `%s`, ' +
+                'follow the stack trace as described in https://reactjs.org/link/setstate-in-render',
+              setStateComponentName,
+              renderingComponentName,
+              renderingComponentName,
+            );
+          }
+          break;
+        }
+        case ClassComponent: {
+          if (!didWarnAboutUpdateInRender) {
+            console.error(
+              'Cannot update during an existing state transition (such as ' +
+                'within `render`). Render methods should be a pure ' +
+                'function of props and state.',
+            );
+            didWarnAboutUpdateInRender = true;
+          }
+          break;
+        }
+      }
+    }
+  }
+}
