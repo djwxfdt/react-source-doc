@@ -148,7 +148,9 @@ function laneToIndex(lane: Lane) {
   return pickArbitraryLaneIndex(lane);
 }
 
-
+/**
+ * 将fiberRoot标记为当前有更新，在pendingLanes中加入当前lane
+ */
 export function markRootUpdated(
   root: FiberRoot,
   updateLane: Lane,

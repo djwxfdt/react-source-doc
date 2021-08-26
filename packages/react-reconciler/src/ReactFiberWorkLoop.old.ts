@@ -1,7 +1,7 @@
 import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCommitHooks, enableProfilerNestedUpdatePhase, enableProfilerNestedUpdateScheduledHook, enableProfilerTimer, enableSchedulingProfiler, enableStrictEffects, enableUpdaterTracking, skipUnmountedBoundaries } from "../../shared/ReactFeatureFlags";
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
-import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update } from "./ReactFiberFlags";
+import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic } from "./ReactFiberFlags";
 import { getCurrentEventPriority, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
 import {
   addFiberToLanesMap,
@@ -15,7 +15,7 @@ import {
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
 import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
-import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, Profiler, SimpleMemoComponent } from "./ReactWorkTags";
+import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, IndeterminateComponent, MemoComponent, Profiler, SimpleMemoComponent } from "./ReactWorkTags";
 import {
   now,
   scheduleCallback as Scheduler_scheduleCallback,
@@ -52,7 +52,12 @@ import {
 } from './ReactFiberDevToolsHook.old';
 import invariant from "../../shared/invariant";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
-import { getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
+import { FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
+
+import {
+  NoFlags as NoHookEffect,
+  Passive as HookPassive,
+} from './ReactHookEffectTags';
 
 const {
   ReactCurrentActQueue,
@@ -100,6 +105,9 @@ let currentEventTime: number = NoTimestamp;
 
 // Only used when enableProfilerNestedUpdateScheduledHook is true;
 // to track which root is currently committing layout effects.
+/**
+ * 用于跟踪当前哪个root正在layoutEffect，一般情况下root只有一个的话，就是判断是否正在layoutEffect
+ */
 let rootCommittingMutationOrLayoutEffects: FiberRoot | null = null;
 
 let rootWithPendingPassiveEffects: FiberRoot | null = null;
@@ -234,6 +242,8 @@ export function requestUpdateLane(fiber: Fiber): Lane {
 
 /**
  * 从当前fiber节点向上遍历，更新优先级，最终返回FiberRoot
+ * 
+ * 主要作用是更新当前fiber的优先级，以及所有上级节点的childLanes优先级
  */
 function markUpdateLaneFromFiberToRoot(
   sourceFiber: Fiber,
@@ -250,10 +260,10 @@ function markUpdateLaneFromFiberToRoot(
       alternate === null &&
       (sourceFiber.flags & (Placement | Hydrating)) !== NoFlags
     ) {
-      // warnAboutUpdateOnNotYetMountedFiberInDEV(sourceFiber);
+      warnAboutUpdateOnNotYetMountedFiberInDEV(sourceFiber);
     }
   }
-  // 这一块代码写的不好，重复代码太多，可以合并的.
+
   let node = sourceFiber;
   let parent = sourceFiber.return;
   while (parent !== null) {
@@ -264,7 +274,7 @@ function markUpdateLaneFromFiberToRoot(
     } else {
       if (__DEV__) {
         if ((parent.flags & (Placement | Hydrating)) !== NoFlags) {
-          // warnAboutUpdateOnNotYetMountedFiberInDEV(sourceFiber);
+          warnAboutUpdateOnNotYetMountedFiberInDEV(sourceFiber);
         }
       }
     }
@@ -341,7 +351,7 @@ export function scheduleUpdateOnFiber(
 
   const root = markUpdateLaneFromFiberToRoot(fiber, lane);
   if (root === null) {
-    // warnAboutUpdateOnUnmountedFiberInDEV(fiber);
+    warnAboutUpdateOnUnmountedFiberInDEV(fiber);
     return null;
   }
 
@@ -351,7 +361,7 @@ export function scheduleUpdateOnFiber(
     }
   }
 
-  // Mark that the root has a pending update.
+  // updated的这个单词有歧义，明明是updatePending
   markRootUpdated(root, lane, eventTime);
 
   if (enableProfilerTimer && enableProfilerNestedUpdateScheduledHook) {
@@ -971,6 +981,153 @@ function warnAboutRenderPhaseUpdatesInDEV(fiber: Fiber) {
             didWarnAboutUpdateInRender = true;
           }
           break;
+        }
+      }
+    }
+  }
+}
+
+let didWarnStateUpdateForNotYetMountedComponent: Set<string> | null = null;
+/**
+ * 开发模式下，检查当前更新是否发生在没mount的fiber上
+ */
+function warnAboutUpdateOnNotYetMountedFiberInDEV(fiber: Fiber) {
+  if (__DEV__) {
+    if ((executionContext & RenderContext) !== NoContext) {
+      // We let the other warning about render phase updates deal with this one.
+      return;
+    }
+
+    if (!(fiber.mode & ConcurrentMode)) {
+      return;
+    }
+
+    const tag = fiber.tag;
+    if (
+      tag !== IndeterminateComponent &&
+      tag !== HostRoot &&
+      tag !== ClassComponent &&
+      tag !== FunctionComponent &&
+      tag !== ForwardRef &&
+      tag !== MemoComponent &&
+      tag !== SimpleMemoComponent
+    ) {
+      // Only warn for user-defined components, not internal ones like Suspense.
+      return;
+    }
+
+    // We show the whole stack but dedupe on the top component's name because
+    // the problematic code almost always lies inside that component.
+    const componentName = getComponentNameFromFiber(fiber) || 'ReactComponent';
+    if (didWarnStateUpdateForNotYetMountedComponent !== null) {
+      if (didWarnStateUpdateForNotYetMountedComponent.has(componentName)) {
+        return;
+      }
+      didWarnStateUpdateForNotYetMountedComponent.add(componentName);
+    } else {
+      didWarnStateUpdateForNotYetMountedComponent = new Set([componentName]);
+    }
+
+    const previousFiber = ReactCurrentFiberCurrent;
+    try {
+      setCurrentDebugFiberInDEV(fiber);
+      console.error(
+        "Can't perform a React state update on a component that hasn't mounted yet. " +
+          'This indicates that you have a side-effect in your render function that ' +
+          'asynchronously later calls tries to update the component. Move this work to ' +
+          'useEffect instead.',
+      );
+    } finally {
+      if (previousFiber) {
+        setCurrentDebugFiberInDEV(fiber);
+      } else {
+        resetCurrentDebugFiberInDEV();
+      }
+    }
+  }
+}
+
+let didWarnStateUpdateForUnmountedComponent: Set<string> | null = null;
+/**
+ * 开发模式下，检查当前更新是否发生在以及卸载的组件上
+ */
+function warnAboutUpdateOnUnmountedFiberInDEV(fiber: Fiber) {
+  if (__DEV__) {
+    const tag = fiber.tag;
+    if (
+      tag !== HostRoot &&
+      tag !== ClassComponent &&
+      tag !== FunctionComponent &&
+      tag !== ForwardRef &&
+      tag !== MemoComponent &&
+      tag !== SimpleMemoComponent
+    ) {
+      // Only warn for user-defined components, not internal ones like Suspense.
+      return;
+    }
+
+    if ((fiber.flags & PassiveStatic) !== NoFlags) {
+      const updateQueue: FunctionComponentUpdateQueue | null = (fiber.updateQueue as any);
+      if (updateQueue !== null) {
+        const lastEffect = updateQueue.lastEffect;
+        if (lastEffect !== null) {
+          const firstEffect = lastEffect.next;
+
+          let effect = firstEffect;
+          do {
+            if (effect.destroy !== undefined) {
+              if ((effect.tag & HookPassive) !== NoHookEffect) {
+                return;
+              }
+            }
+            effect = effect.next;
+          } while (effect !== firstEffect);
+        }
+      }
+    }
+    // We show the whole stack but dedupe on the top component's name because
+    // the problematic code almost always lies inside that component.
+    const componentName = getComponentNameFromFiber(fiber) || 'ReactComponent';
+    if (didWarnStateUpdateForUnmountedComponent !== null) {
+      if (didWarnStateUpdateForUnmountedComponent.has(componentName)) {
+        return;
+      }
+      didWarnStateUpdateForUnmountedComponent.add(componentName);
+    } else {
+      didWarnStateUpdateForUnmountedComponent = new Set([componentName]);
+    }
+
+    if (isFlushingPassiveEffects) {
+      // Do not warn if we are currently flushing passive effects!
+      //
+      // React can't directly detect a memory leak, but there are some clues that warn about one.
+      // One of these clues is when an unmounted React component tries to update its state.
+      // For example, if a component forgets to remove an event listener when unmounting,
+      // that listener may be called later and try to update state,
+      // at which point React would warn about the potential leak.
+      //
+      // Warning signals are the most useful when they're strong.
+      // (So we should avoid false positive warnings.)
+      // Updating state from within an effect cleanup function is sometimes a necessary pattern, e.g.:
+      // 1. Updating an ancestor that a component had registered itself with on mount.
+      // 2. Resetting state when a component is hidden after going offscreen.
+    } else {
+      const previousFiber = ReactCurrentFiberCurrent;
+      try {
+        setCurrentDebugFiberInDEV(fiber);
+        console.error(
+          "Can't perform a React state update on an unmounted component. This " +
+            'is a no-op, but it indicates a memory leak in your application. To ' +
+            'fix, cancel all subscriptions and asynchronous tasks in %s.',
+          tag === ClassComponent
+            ? 'the componentWillUnmount method'
+            : 'a useEffect cleanup function',
+        );
+      } finally {
+        if (previousFiber) {
+          setCurrentDebugFiberInDEV(fiber);
+        } else {
+          resetCurrentDebugFiberInDEV();
         }
       }
     }

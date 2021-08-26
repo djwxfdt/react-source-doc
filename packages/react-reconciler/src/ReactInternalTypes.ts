@@ -227,7 +227,13 @@ type BaseFiberRootProperties = {
   expirationTimes: LaneMap<number>,
 
   pendingLanes: Lanes,
+  /**
+   * suspense相关的lanes
+   */
   suspendedLanes: Lanes,
+  /**
+   * suspense的任务被恢复的lanes
+   */
   pingedLanes: Lanes,
   expiredLanes: Lanes,
   mutableReadLanes: Lanes,
