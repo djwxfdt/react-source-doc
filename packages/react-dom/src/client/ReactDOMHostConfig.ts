@@ -36,6 +36,10 @@ const localPromise = typeof Promise === 'function' ? Promise : undefined;
 //     Microtasks
 // -------------------
 export const supportsMicrotasks = true;
+
+/**
+ * 加入到微任务队列，使用的是queueMicrotask，fallback为promise.resolve
+ */
 export const scheduleMicrotask: any =
   typeof queueMicrotask === 'function'
     ? queueMicrotask

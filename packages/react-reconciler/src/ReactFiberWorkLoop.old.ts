@@ -38,7 +38,7 @@ import { commitPassiveMountEffects, commitPassiveUnmountEffects, invokeLayoutEff
 import { createCapturedValue } from "./ReactCapturedValue";
 import { enqueueUpdate } from "./ReactUpdateQueue.old";
 import {createRootErrorUpdate, createClassErrorUpdate} from './ReactFiberThrow.old'
-import {getCommitTime, isCurrentUpdateNested} from './ReactProfilerTimer.old'
+import {getCommitTime, isCurrentUpdateNested, syncNestedUpdateFlag} from './ReactProfilerTimer.old'
 
 import {
   isRendering as ReactCurrentDebugFiberIsRenderingInDEV,
@@ -385,7 +385,8 @@ export function scheduleUpdateOnFiber(
   }
 
   /**
-   * 和isInterleavedUpdate差不多
+   * 和isInterleavedUpdate差不多，就是说当前的更新是在render阶段触发的。
+   * 还在更新中的时候，又来了一个更新，所以初次阅读的时候，这一块可以暂时跳过
    */
   if (root === workInProgressRoot) {
     // Received an update to a tree that's in the middle of rendering. Mark
@@ -413,6 +414,9 @@ export function scheduleUpdateOnFiber(
     }
   }
 
+  /**
+   * 又是一个很深的调用，请注意深入阅读
+   */
   ensureRootIsScheduled(root, eventTime);
   if (
     lane === SyncLane &&
@@ -692,11 +696,21 @@ export function flushPassiveEffects(): boolean {
   return false;
 }
 
+/**
+ * 同步任务的执行入口，这里不会进入任务调度
+ */
 function performSyncWorkOnRoot(root: FiberRoot) {
   if (enableProfilerTimer && enableProfilerNestedUpdatePhase) {
-    // syncNestedUpdateFlag();
+    syncNestedUpdateFlag();
   }
+
+  invariant(
+    (executionContext & (RenderContext | CommitContext)) === NoContext,
+    'Should not already be working.',
+  );
+
   flushPassiveEffects();
+
 
   return null;
 }

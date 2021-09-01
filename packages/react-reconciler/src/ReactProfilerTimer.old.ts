@@ -1,4 +1,4 @@
-import { enableProfilerTimer, enableProfilerCommitHooks } from "../../shared/ReactFeatureFlags";
+import { enableProfilerTimer, enableProfilerCommitHooks, enableProfilerNestedUpdatePhase } from "../../shared/ReactFeatureFlags";
 import { Fiber } from "./ReactInternalTypes";
 import { HostRoot, Profiler } from "./ReactWorkTags";
 import { now } from "./Scheduler";
@@ -11,6 +11,13 @@ let passiveEffectStartTime: number = -1;
 
 let currentUpdateIsNested: boolean = false;
 let nestedUpdateScheduled: boolean = false;
+
+export function syncNestedUpdateFlag(): void {
+  if (enableProfilerNestedUpdatePhase) {
+    currentUpdateIsNested = nestedUpdateScheduled;
+    nestedUpdateScheduled = false;
+  }
+}
 
 export function startPassiveEffectTimer(): void {
   if (!enableProfilerTimer || !enableProfilerCommitHooks) {
