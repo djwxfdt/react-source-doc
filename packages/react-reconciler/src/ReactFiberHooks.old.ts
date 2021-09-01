@@ -1,5 +1,6 @@
 import { Lane, Lanes } from "./ReactFiberLane.old";
 import { HookFlags } from "./ReactHookEffectTags";
+import { Dispatcher } from "./ReactInternalTypes";
 
 export type Effect = {
   tag: HookFlags,
@@ -36,3 +37,23 @@ export function getIsUpdatingOpaqueValueInRenderPhaseInDEV(): boolean | void {
     return isUpdatingOpaqueValueInRenderPhase;
   }
 }
+export const ContextOnlyDispatcher: Dispatcher = {
+  // readContext,
+
+  // useCallback: throwInvalidHookError,
+  // useContext: throwInvalidHookError,
+  // useEffect: throwInvalidHookError,
+  // useImperativeHandle: throwInvalidHookError,
+  // useLayoutEffect: throwInvalidHookError,
+  // useMemo: throwInvalidHookError,
+  // useReducer: throwInvalidHookError,
+  // useRef: throwInvalidHookError,
+  // useState: throwInvalidHookError,
+  // useDebugValue: throwInvalidHookError,
+  // useDeferredValue: throwInvalidHookError,
+  // useTransition: throwInvalidHookError,
+  // useMutableSource: throwInvalidHookError,
+  // useOpaqueIdentifier: throwInvalidHookError,
+
+  // unstable_isNewReconciler: enableNewReconciler,
+};

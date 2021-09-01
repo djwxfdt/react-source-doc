@@ -2,7 +2,7 @@ import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCo
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic } from "./ReactFiberFlags";
-import { getCurrentEventPriority, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
+import { cancelTimeout, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
 import {
   addFiberToLanesMap,
   claimNextTransitionLane, Lane, Lanes, markRootUpdated, mergeLanes,
@@ -11,6 +11,8 @@ import {
   markStarvedLanesAsExpired,
   getNextLanes,
   getHighestPriorityLane,
+  includesSomeLane,
+  movePendingFibersToMemoized,
 } from "./ReactFiberLane.old";
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
@@ -52,7 +54,7 @@ import {
 } from './ReactFiberDevToolsHook.old';
 import invariant from "../../shared/invariant";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
-import { FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
+import { ContextOnlyDispatcher, FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
 
 import {
   NoFlags as NoHookEffect,
@@ -61,6 +63,7 @@ import {
 
 const {
   ReactCurrentActQueue,
+  ReactCurrentDispatcher,
 } = ReactSharedInternals;
 
 type ExecutionContext = number;
@@ -81,7 +84,7 @@ const RootSuspendedWithDelay = 4;
 const RootCompleted = 5;
 
 const NESTED_UPDATE_LIMIT = 50;
-let nestedUpdateCount: number = 0;
+let nestedUpdateCount = 0;
 let rootWithNestedUpdates: FiberRoot | null = null;
 
 /**
@@ -116,7 +119,7 @@ let pendingPassiveEffectsLanes: Lanes = NoLanes;
 let pendingPassiveProfilerEffects: Array<Fiber> = [];
 
 const NESTED_PASSIVE_UPDATE_LIMIT = 50;
-let nestedPassiveUpdateCount: number = 0;
+let nestedPassiveUpdateCount = 0;
 
 // 在更新期间触发的更新，保存他们的优先级
 let workInProgressRootUpdatedLanes: Lanes = NoLanes;
@@ -173,7 +176,7 @@ function markRootSuspended(root: FiberRoot, suspendedLanes: Lanes) {
 
 // The absolute time for when we should start giving up on rendering
 // more and prefer CPU suspense heuristics instead.
-let workInProgressRootRenderTargetTime: number = Infinity;
+let workInProgressRootRenderTargetTime = Infinity;
 // How long a render is supposed to take before we start following CPU
 // suspense heuristics and opt out of rendering more content.
 const RENDER_TIMEOUT_MS = 500;
@@ -292,7 +295,7 @@ function markUpdateLaneFromFiberToRoot(
 /**
  * 判断当前属于渲染过程中的update，通常由于渲染过程中用户输入导致
  */
-export function isInterleavedUpdate(fiber: Fiber, lane: Lane) {
+export function isInterleavedUpdate(fiber: Fiber, lane: Lane): boolean {
   return (
     // TODO: Optimize slightly by comparing to root that fiber belongs to.
     // Requires some refactoring. Not a big deal though since it's rare for
@@ -670,7 +673,8 @@ function flushPassiveEffectsImpl() {
 
 
 /**
- * 执行useEffect?
+ * TODO
+ * 执行useEffect?, render阶段应该不会执行这个才对
  */
 export function flushPassiveEffects(): boolean {
   // Returns whether passive effects were flushed.
@@ -696,6 +700,148 @@ export function flushPassiveEffects(): boolean {
   return false;
 }
 
+function pushDispatcher() {
+  const prevDispatcher = ReactCurrentDispatcher.current;
+  ReactCurrentDispatcher.current = ContextOnlyDispatcher;
+  if (prevDispatcher === null) {
+    // The React isomorphic package does not include a default dispatcher.
+    // Instead the first renderer will lazily attach one, in order to give
+    // nicer error messages.
+    return ContextOnlyDispatcher;
+  } else {
+    return prevDispatcher;
+  }
+}
+
+
+function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
+  root.finishedWork = null;
+  root.finishedLanes = NoLanes;
+
+  const timeoutHandle = root.timeoutHandle;
+  if (timeoutHandle !== noTimeout) {
+    // The root previous suspended and scheduled a timeout to commit a fallback
+    // state. Now that we have additional work, cancel the timeout.
+    root.timeoutHandle = noTimeout;
+    // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
+    cancelTimeout(timeoutHandle);
+  }
+
+  // if (workInProgress !== null) {
+  //   let interruptedWork = workInProgress.return;
+  //   while (interruptedWork !== null) {
+  //     unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
+  //     interruptedWork = interruptedWork.return;
+  //   }
+  // }
+  // workInProgressRoot = root;
+  // workInProgress = createWorkInProgress(root.current, null);
+  // workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
+  // workInProgressRootExitStatus = RootIncomplete;
+  // workInProgressRootFatalError = null;
+  // workInProgressRootSkippedLanes = NoLanes;
+  // workInProgressRootUpdatedLanes = NoLanes;
+  // workInProgressRootPingedLanes = NoLanes;
+
+  // enqueueInterleavedUpdates();
+
+  // if (__DEV__) {
+  //   ReactStrictModeWarnings.discardPendingWarnings();
+  // }
+}
+
+export function restorePendingUpdaters(root: FiberRoot, lanes: Lanes): void {
+  if (enableUpdaterTracking) {
+    if (isDevToolsPresent) {
+      const memoizedUpdaters = root.memoizedUpdaters!;
+      memoizedUpdaters.forEach(schedulingFiber => {
+        addFiberToLanesMap(root, schedulingFiber, lanes);
+      });
+
+      // This function intentionally does not clear memoized updaters.
+      // Those may still be relevant to the current commit
+      // and a future one (e.g. Suspense).
+    }
+  }
+}
+
+function renderRootSync(root: FiberRoot, lanes: Lanes) {
+  const prevExecutionContext = executionContext;
+  executionContext |= RenderContext;
+  const prevDispatcher = pushDispatcher();
+
+  // If the root or lanes have changed, throw out the existing stack
+  // and prepare a fresh one. Otherwise we'll continue where we left off.
+  if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
+    if (enableUpdaterTracking) {
+      if (isDevToolsPresent) {
+        const memoizedUpdaters = root.memoizedUpdaters!;
+        if (memoizedUpdaters.size > 0) {
+          restorePendingUpdaters(root, workInProgressRootRenderLanes);
+          memoizedUpdaters.clear();
+        }
+
+        // At this point, move Fibers that scheduled the upcoming work from the Map to the Set.
+        // If we bailout on this work, we'll move them back (like above).
+        // It's important to move them now in case the work spawns more work at the same priority with different updaters.
+        // That way we can keep the current update and future updates separate.
+        movePendingFibersToMemoized(root, lanes);
+      }
+    }
+
+    prepareFreshStack(root, lanes);
+  }
+
+  // if (__DEV__) {
+  //   if (enableDebugTracing) {
+  //     logRenderStarted(lanes);
+  //   }
+  // }
+
+  // if (enableSchedulingProfiler) {
+  //   markRenderStarted(lanes);
+  // }
+
+  // do {
+  //   try {
+  //     workLoopSync();
+  //     break;
+  //   } catch (thrownValue) {
+  //     handleError(root, thrownValue);
+  //   }
+  // } while (true);
+  // resetContextDependencies();
+
+  // executionContext = prevExecutionContext;
+  // popDispatcher(prevDispatcher);
+
+  // if (workInProgress !== null) {
+  //   // This is a sync render, so we should have finished the whole tree.
+  //   invariant(
+  //     false,
+  //     'Cannot commit an incomplete root. This error is likely caused by a ' +
+  //       'bug in React. Please file an issue.',
+  //   );
+  // }
+
+  // if (__DEV__) {
+  //   if (enableDebugTracing) {
+  //     logRenderStopped();
+  //   }
+  // }
+
+  // if (enableSchedulingProfiler) {
+  //   markRenderStopped();
+  // }
+
+  // // Set this to null to indicate there's no in-progress render.
+  // workInProgressRoot = null;
+  // workInProgressRootRenderLanes = NoLanes;
+
+  // return workInProgressRootExitStatus;
+}
+
+
 /**
  * 同步任务的执行入口，这里不会进入任务调度
  */
@@ -709,8 +855,22 @@ function performSyncWorkOnRoot(root: FiberRoot) {
     'Should not already be working.',
   );
 
+  /**
+   * 目前觉得render阶段，这个应该不会执行
+   */
   flushPassiveEffects();
 
+  /**
+   * 相当于这里再做一次校验，如果当前优先级队列不包含同步优先级就返回
+   */
+  let lanes = getNextLanes(root, NoLanes);
+  if (!includesSomeLane(lanes, SyncLane)) {
+    // There's no remaining sync work left.
+    ensureRootIsScheduled(root, now());
+    return null;
+  }
+
+  let exitStatus = renderRootSync(root, lanes);
 
   return null;
 }

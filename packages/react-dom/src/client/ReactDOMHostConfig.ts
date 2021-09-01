@@ -57,3 +57,5 @@ function handleErrorInNextTick(error: Error) {
     throw error;
   });
 }
+
+export const cancelTimeout: any = typeof clearTimeout === 'function' ? clearTimeout : (undefined as any);

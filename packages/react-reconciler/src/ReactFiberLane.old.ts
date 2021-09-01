@@ -545,3 +545,31 @@ export function markRootEntangled(root: FiberRoot, entangledLanes: Lanes) {
     lanes &= ~lane;
   }
 }
+
+export function movePendingFibersToMemoized(root: FiberRoot, lanes: Lanes) {
+  if (!enableUpdaterTracking) {
+    return;
+  }
+  if (!isDevToolsPresent) {
+    return;
+  }
+  const pendingUpdatersLaneMap = root.pendingUpdatersLaneMap!;
+  const memoizedUpdaters = root.memoizedUpdaters!;
+  while (lanes > 0) {
+    const index = laneToIndex(lanes);
+    const lane = 1 << index;
+
+    const updaters = pendingUpdatersLaneMap[index];
+    if (updaters.size > 0) {
+      updaters.forEach(fiber => {
+        const alternate = fiber.alternate;
+        if (alternate === null || !memoizedUpdaters.has(alternate)) {
+          memoizedUpdaters.add(fiber);
+        }
+      });
+      updaters.clear();
+    }
+
+    lanes &= ~lane;
+  }
+}
