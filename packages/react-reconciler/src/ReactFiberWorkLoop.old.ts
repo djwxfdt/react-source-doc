@@ -1,4 +1,16 @@
-import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCommitHooks, enableProfilerNestedUpdatePhase, enableProfilerNestedUpdateScheduledHook, enableProfilerTimer, enableSchedulingProfiler, enableStrictEffects, enableUpdaterTracking, skipUnmountedBoundaries } from "../../shared/ReactFeatureFlags";
+import { 
+  deferRenderPhaseUpdateToNextBatch,
+  enableDebugTracing,
+  enableProfilerCommitHooks,
+  enableProfilerNestedUpdatePhase,
+  enableProfilerNestedUpdateScheduledHook,
+  enableProfilerTimer,
+  enableSchedulingProfiler,
+  enableStrictEffects,
+  enableUpdaterTracking,
+  skipUnmountedBoundaries,
+  replayFailedUnitOfWorkWithInvokeGuardedCallback
+} from "../../shared/ReactFeatureFlags";
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic } from "./ReactFiberFlags";
@@ -34,13 +46,13 @@ import { flushSyncCallbacks, flushSyncCallbacksOnlyInLegacyMode, scheduleLegacyS
 import { LegacyRoot } from "./ReactRootTags";
 import { PriorityLevel } from "../../scheduler/src/SchedulerPriorities";
 import ReactCurrentBatchConfig from "../../react/src/ReactCurrentBatchConfig";
-import { logPassiveEffectsStarted, logPassiveEffectsStopped } from "./DebugTracing";
-import { markPassiveEffectsStarted, markPassiveEffectsStopped } from "./SchedulingProfiler";
+import { logPassiveEffectsStarted, logPassiveEffectsStopped, logRenderStarted } from "./DebugTracing";
+import { markPassiveEffectsStarted, markPassiveEffectsStopped, markRenderStarted } from "./SchedulingProfiler";
 import { commitPassiveMountEffects, commitPassiveUnmountEffects, invokeLayoutEffectMountInDEV, invokeLayoutEffectUnmountInDEV, invokePassiveEffectMountInDEV, invokePassiveEffectUnmountInDEV } from "./ReactFiberCommitWork.old";
 import { createCapturedValue } from "./ReactCapturedValue";
 import { enqueueUpdate } from "./ReactUpdateQueue.old";
 import {createRootErrorUpdate, createClassErrorUpdate} from './ReactFiberThrow.old'
-import {getCommitTime, isCurrentUpdateNested, syncNestedUpdateFlag} from './ReactProfilerTimer.old'
+import {getCommitTime, isCurrentUpdateNested, startProfilerTimer, stopProfilerTimerIfRunningAndRecordDelta, syncNestedUpdateFlag} from './ReactProfilerTimer.old'
 
 import {
   isRendering as ReactCurrentDebugFiberIsRenderingInDEV,
@@ -54,19 +66,29 @@ import {
 } from './ReactFiberDevToolsHook.old';
 import invariant from "../../shared/invariant";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
-import { ContextOnlyDispatcher, FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
+import { ContextOnlyDispatcher, FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV, resetHooksAfterThrow } from "./ReactFiberHooks.old";
 
 import {
   NoFlags as NoHookEffect,
   Passive as HookPassive,
 } from './ReactHookEffectTags';
+import { assignFiberPropertiesInDEV, createWorkInProgress } from "./ReactFiber.old";
+
+import {beginWork as originalBeginWork} from './ReactFiberBeginWork.old';
+import { resetContextDependencies } from "./ReactFiberNewContext.old";
+import { unwindInterruptedWork } from "./ReactFiberUnwindWork.old";
+import { clearCaughtError, hasCaughtError, invokeGuardedCallback } from "../../shared/ReactErrorUtils";
+import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
+import { enqueueInterleavedUpdates } from "./ReactFiberInterleavedUpdates.old";
 
 const {
   ReactCurrentActQueue,
   ReactCurrentDispatcher,
+  ReactCurrentOwner
 } = ReactSharedInternals;
 
 type ExecutionContext = number;
+
 
 export const NoContext = /*             */ 0b0000;
 const BatchedContext = /*               */ 0b0001;
@@ -121,9 +143,18 @@ let pendingPassiveProfilerEffects: Array<Fiber> = [];
 const NESTED_PASSIVE_UPDATE_LIMIT = 50;
 let nestedPassiveUpdateCount = 0;
 
-// 在更新期间触发的更新，保存他们的优先级
+// A fatal error, if one is thrown
+let workInProgressRootFatalError: mixed = null;
+// "Included" lanes refer to lanes that were worked on during this render. It's
+// slightly different than `renderLanes` because `renderLanes` can change as you
+// enter and exit an Offscreen tree. This value is the combination of all render
+// lanes for the entire render phase.
+let workInProgressRootIncludedLanes: Lanes = NoLanes;
+// The work left over by components that were visited during this render. Only
+// includes unprocessed updates, not work in bailed out children.
+let workInProgressRootSkippedLanes: Lanes = NoLanes;
+// Lanes that were updated (in an interleaved event) during this render.
 let workInProgressRootUpdatedLanes: Lanes = NoLanes;
-
 // Lanes that were pinged (in an interleaved event) during this render.
 let workInProgressRootPingedLanes: Lanes = NoLanes;
 
@@ -136,6 +167,7 @@ let firstUncaughtError = null;
 
 let legacyErrorBoundariesThatAlreadyFailed: Set<mixed> | null = null;
 
+export let subtreeRenderLanes: Lanes = NoLanes;
 
 const fakeActCallbackNode = {};
 function scheduleCallback(priorityLevel: PriorityLevel, callback: Function) {
@@ -713,7 +745,9 @@ function pushDispatcher() {
   }
 }
 
-
+/**
+ * 初始化render的入口，重设workInProgress和workInProgressRoot
+ */
 function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   root.finishedWork = null;
   root.finishedLanes = NoLanes;
@@ -727,27 +761,27 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
     cancelTimeout(timeoutHandle);
   }
 
-  // if (workInProgress !== null) {
-  //   let interruptedWork = workInProgress.return;
-  //   while (interruptedWork !== null) {
-  //     unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
-  //     interruptedWork = interruptedWork.return;
-  //   }
-  // }
-  // workInProgressRoot = root;
-  // workInProgress = createWorkInProgress(root.current, null);
-  // workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
-  // workInProgressRootExitStatus = RootIncomplete;
-  // workInProgressRootFatalError = null;
-  // workInProgressRootSkippedLanes = NoLanes;
-  // workInProgressRootUpdatedLanes = NoLanes;
-  // workInProgressRootPingedLanes = NoLanes;
+  if (workInProgress !== null) {
+    let interruptedWork = workInProgress.return;
+    while (interruptedWork !== null) {
+      unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
+      interruptedWork = interruptedWork.return;
+    }
+  }
+  workInProgressRoot = root;
+  workInProgress = createWorkInProgress(root.current!, null);
+  workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
+  workInProgressRootExitStatus = RootIncomplete;
+  workInProgressRootFatalError = null;
+  workInProgressRootSkippedLanes = NoLanes;
+  workInProgressRootUpdatedLanes = NoLanes;
+  workInProgressRootPingedLanes = NoLanes;
 
-  // enqueueInterleavedUpdates();
+  enqueueInterleavedUpdates();
 
-  // if (__DEV__) {
-  //   ReactStrictModeWarnings.discardPendingWarnings();
-  // }
+  if (__DEV__) {
+    ReactStrictModeWarnings.discardPendingWarnings();
+  }
 }
 
 export function restorePendingUpdaters(root: FiberRoot, lanes: Lanes): void {
@@ -765,13 +799,140 @@ export function restorePendingUpdaters(root: FiberRoot, lanes: Lanes): void {
   }
 }
 
+let beginWork: (current: Fiber, unitOfWork: Fiber, lanes: Lanes) => Fiber | null | undefined;
+if (__DEV__ && replayFailedUnitOfWorkWithInvokeGuardedCallback) {
+  const dummyFiber = null;
+  beginWork = (current, unitOfWork, lanes) => {
+    // If a component throws an error, we replay it again in a synchronously
+    // dispatched event, so that the debugger will treat it as an uncaught
+    // error See ReactErrorUtils for more information.
+
+    // Before entering the begin phase, copy the work-in-progress onto a dummy
+    // fiber. If beginWork throws, we'll use this to reset the state.
+    const originalWorkInProgressCopy = assignFiberPropertiesInDEV(
+      dummyFiber,
+      unitOfWork,
+    );
+    try {
+      return originalBeginWork(current, unitOfWork, lanes);
+    } catch (originalError) {
+      if (
+        originalError !== null &&
+        typeof originalError === 'object' &&
+        typeof originalError.then === 'function'
+      ) {
+        // Don't replay promises. Treat everything else like an error.
+        throw originalError;
+      }
+
+      // Keep this code in sync with handleError; any changes here must have
+      // corresponding changes there.
+      resetContextDependencies();
+      resetHooksAfterThrow();
+      // Don't reset current debug fiber, since we're about to work on the
+      // same fiber again.
+
+      // Unwind the failed stack frame
+      unwindInterruptedWork(unitOfWork, workInProgressRootRenderLanes);
+
+      // Restore the original properties of the fiber.
+      assignFiberPropertiesInDEV(unitOfWork, originalWorkInProgressCopy);
+
+      if (enableProfilerTimer && unitOfWork.mode & ProfileMode) {
+        // Reset the profiler timer.
+        startProfilerTimer(unitOfWork);
+      }
+
+      // Run beginWork again.
+      invokeGuardedCallback(
+        null,
+        originalBeginWork,
+        null,
+        current,
+        unitOfWork,
+        lanes,
+      );
+
+      if (hasCaughtError()) {
+        const replayError = clearCaughtError();
+        if (
+          typeof replayError === 'object' &&
+          replayError !== null &&
+          replayError._suppressLogging &&
+          typeof originalError === 'object' &&
+          originalError !== null &&
+          !originalError._suppressLogging
+        ) {
+          // If suppressed, let the flag carry over to the original error which is the one we'll rethrow.
+          originalError._suppressLogging = true;
+        }
+      }
+      // We always throw the original error in case the second render pass is not idempotent.
+      // This can happen if a memoized function or CommonJS module doesn't throw after first invokation.
+      throw originalError;
+    }
+  };
+} else {
+  beginWork = originalBeginWork;
+}
+
+function performUnitOfWork(unitOfWork: Fiber): void {
+  // The current, flushed, state of this fiber is the alternate. Ideally
+  // nothing should rely on this, but relying on it here means that we don't
+  // need an additional field on the work in progress.
+  const current = unitOfWork.alternate!;
+  setCurrentDebugFiberInDEV(unitOfWork);
+
+  let next;
+  if (enableProfilerTimer && (unitOfWork.mode & ProfileMode) !== NoMode) {
+    startProfilerTimer(unitOfWork);
+    next = beginWork(current, unitOfWork, subtreeRenderLanes);
+    stopProfilerTimerIfRunningAndRecordDelta(unitOfWork, true);
+  } else {
+    next = beginWork(current, unitOfWork, subtreeRenderLanes);
+  }
+
+  resetCurrentDebugFiberInDEV();
+  unitOfWork.memoizedProps = unitOfWork.pendingProps;
+  if (next === null) {
+    // If this doesn't spawn new work, complete the current work.
+    completeUnitOfWork(unitOfWork);
+  } else {
+    workInProgress = next as any;
+  }
+
+  ReactCurrentOwner.current = null;
+}
+
+function completeUnitOfWork(unitOfWork: Fiber): void {
+
+}
+
+function workLoopSync() {
+  // Already timed out, so perform work without checking if we need to yield.
+  while (workInProgress !== null) {
+    performUnitOfWork(workInProgress);
+  }
+}
+
+function handleError(root, thrownValue): void {
+}
+
 function renderRootSync(root: FiberRoot, lanes: Lanes) {
   const prevExecutionContext = executionContext;
   executionContext |= RenderContext;
+
+  /**
+   * 保存当前的dispacher
+   */
   const prevDispatcher = pushDispatcher();
 
   // If the root or lanes have changed, throw out the existing stack
   // and prepare a fresh one. Otherwise we'll continue where we left off.
+  /**
+   * 如果根节点发生了变化，或者当前优先级发生变化，则重制调用栈
+   * 初次渲染的时候，workInProgressRoot为null, 肯定进入下面的逻辑
+   */
   if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
     if (enableUpdaterTracking) {
       if (isDevToolsPresent) {
@@ -792,24 +953,31 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
     prepareFreshStack(root, lanes);
   }
 
-  // if (__DEV__) {
-  //   if (enableDebugTracing) {
-  //     logRenderStarted(lanes);
-  //   }
-  // }
+  /**
+   * 打日志
+   */
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      logRenderStarted(lanes);
+    }
+  }
 
-  // if (enableSchedulingProfiler) {
-  //   markRenderStarted(lanes);
-  // }
+  /**
+   * 用于检测渲染性能的
+   */
+  if (enableSchedulingProfiler) {
+    markRenderStarted(lanes);
+  }
 
-  // do {
-  //   try {
-  //     workLoopSync();
-  //     break;
-  //   } catch (thrownValue) {
-  //     handleError(root, thrownValue);
-  //   }
-  // } while (true);
+  do {
+    try {
+      workLoopSync();
+      break;
+    } catch (thrownValue) {
+      handleError(root, thrownValue);
+    }
+  // eslint-disable-next-line no-constant-condition
+  } while (true);
   // resetContextDependencies();
 
   // executionContext = prevExecutionContext;

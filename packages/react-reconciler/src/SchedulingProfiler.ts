@@ -33,3 +33,11 @@ export function markPassiveEffectsStopped(): void {
     }
   }
 }
+
+export function markRenderStarted(lanes: Lanes): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      markAndClear(`--render-start-${lanes}`);
+    }
+  }
+}

@@ -7,14 +7,15 @@
  * @flow
  */
 
- import invokeGuardedCallbackImpl from './invokeGuardedCallbackImpl';
+ import invariant from './invariant';
+import invokeGuardedCallbackImpl from './invokeGuardedCallbackImpl';
  
  // Used by Fiber to simulate a try-catch.
- let hasError: boolean = false;
+ let hasError = false;
  let caughtError: mixed = null;
  
  // Used by event system to capture/rethrow the first error.
- let hasRethrowError: boolean = false;
+ let hasRethrowError = false;
  let rethrowError: mixed = null;
  
  const reporter = {
@@ -116,11 +117,11 @@
      caughtError = null;
      return error;
    } else {
-    //  invariant(
-    //    false,
-    //    'clearCaughtError was called but no error was captured. This error ' +
-    //      'is likely caused by a bug in React. Please file an issue.',
-    //  );
+     invariant(
+       false,
+       'clearCaughtError was called but no error was captured. This error ' +
+         'is likely caused by a bug in React. Please file an issue.',
+     );
    }
  }
  

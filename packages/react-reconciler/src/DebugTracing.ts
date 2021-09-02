@@ -73,3 +73,16 @@ export function logPassiveEffectsStopped(): void {
     }
   }
 }
+
+export function logRenderStarted(lanes: Lanes): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      group(
+        `%c⚛️%c render%c (${formatLanes(lanes)})`,
+        REACT_LOGO_STYLE,
+        '',
+        'font-weight: normal;',
+      );
+    }
+  }
+}

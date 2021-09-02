@@ -106,3 +106,35 @@ export function recordLayoutEffectDuration(fiber: Fiber): void {
     }
   }
 }
+
+
+export function startProfilerTimer(fiber: Fiber): void {
+  if (!enableProfilerTimer) {
+    return;
+  }
+
+  profilerStartTime = now();
+
+  if (fiber.actualStartTime! < 0) {
+    fiber.actualStartTime = now();
+  }
+}
+
+
+export function stopProfilerTimerIfRunningAndRecordDelta(
+  fiber: Fiber,
+  overrideBaseTime: boolean,
+): void {
+  if (!enableProfilerTimer) {
+    return;
+  }
+
+  if (profilerStartTime >= 0) {
+    const elapsedTime = now() - profilerStartTime;
+    fiber.actualDuration! += elapsedTime;
+    if (overrideBaseTime) {
+      fiber.selfBaseDuration = elapsedTime;
+    }
+    profilerStartTime = -1;
+  }
+}
