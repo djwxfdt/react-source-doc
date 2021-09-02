@@ -747,8 +747,13 @@ function pushDispatcher() {
 
 /**
  * 初始化render的入口，重设workInProgress和workInProgressRoot
+ * 
+ * 所以也就是说如果render过程中出现了更高优先级的任务，此时就会重制render过程，再次从fiberRoot开始
  */
 function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
+  /**
+   * 充值卡finish状态
+   */
   root.finishedWork = null;
   root.finishedLanes = NoLanes;
 

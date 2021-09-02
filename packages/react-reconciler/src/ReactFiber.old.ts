@@ -253,7 +253,9 @@ export function assignFiberPropertiesInDEV(
   return target;
 }
 
-
+/**
+ * 这里就是很著名的双缓冲结构
+ */
 export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   let workInProgress = current.alternate;
   if (workInProgress === null) {
