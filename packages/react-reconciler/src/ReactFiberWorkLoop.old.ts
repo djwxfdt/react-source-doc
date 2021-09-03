@@ -885,6 +885,9 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
   // need an additional field on the work in progress.
+  /**
+   * 理一下思路，初次的时候unitOfWork是rootFiber的alternate。current才是当前正在处理的rootFiber
+   */
   const current = unitOfWork.alternate!;
   setCurrentDebugFiberInDEV(unitOfWork);
 
@@ -903,7 +906,7 @@ function performUnitOfWork(unitOfWork: Fiber): void {
     // If this doesn't spawn new work, complete the current work.
     completeUnitOfWork(unitOfWork);
   } else {
-    workInProgress = next as any;
+    workInProgress = next as Fiber;
   }
 
   ReactCurrentOwner.current = null;
@@ -914,7 +917,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
 }
 
 function workLoopSync() {
-  // Already timed out, so perform work without checking if we need to yield.
+  // 初次渲染的时候，workInProgress就是当前rootFiber的alternate。也就是clone的rootFiber
   while (workInProgress !== null) {
     performUnitOfWork(workInProgress);
   }

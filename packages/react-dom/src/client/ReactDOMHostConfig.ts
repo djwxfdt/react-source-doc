@@ -58,6 +58,9 @@ function handleErrorInNextTick(error: Error) {
   });
 }
 
+export const isPrimaryRenderer = true;
+
+
 /**
  * 就是clearTimeout
  */

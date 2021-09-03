@@ -1,9 +1,11 @@
 import checkPropTypes from "../../shared/checkPropTypes";
 import { disableLegacyContext } from "../../shared/ReactFeatureFlags";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
+import { createCursor, StackCursor } from "./ReactFiberStack.old";
 import { Fiber } from "./ReactInternalTypes";
 import { ClassComponent, HostRoot } from "./ReactWorkTags";
 
+const didPerformWorkStackCursor: StackCursor<boolean> = createCursor(false);
 
 let warnedAboutMissingGetChildContext: any;
 
@@ -124,5 +126,13 @@ export function processChildContext(
     }
 
     return {...parentContext, ...childContext};
+  }
+}
+
+export function hasContextChanged(): boolean {
+  if (disableLegacyContext) {
+    return false;
+  } else {
+    return didPerformWorkStackCursor.current;
   }
 }

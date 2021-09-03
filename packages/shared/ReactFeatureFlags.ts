@@ -71,3 +71,8 @@ export const disableNativeComponentFrames = false;
 
 
 export const skipUnmountedBoundaries = false;
+
+
+export const enableScopeAPI = false;
+
+export const enableLazyContextPropagation = false;

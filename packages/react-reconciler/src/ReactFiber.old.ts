@@ -1,13 +1,26 @@
-import { allowConcurrentByDefault, createRootStrictEffectsByDefault, enableProfilerTimer, enableStrictEffects, enableSyncDefaultUpdates } from "../../shared/ReactFeatureFlags";
+import invariant from "../../shared/invariant";
+import { ReactElement } from "../../shared/ReactElementType";
+import { allowConcurrentByDefault, createRootStrictEffectsByDefault, enableCache, enableProfilerTimer, enableScopeAPI, enableStrictEffects, enableSyncDefaultUpdates } from "../../shared/ReactFeatureFlags";
+import { REACT_FRAGMENT_TYPE, REACT_DEBUG_TRACING_MODE_TYPE, REACT_STRICT_MODE_TYPE, REACT_PROFILER_TYPE, REACT_SUSPENSE_TYPE, REACT_SUSPENSE_LIST_TYPE, REACT_OFFSCREEN_TYPE, REACT_LEGACY_HIDDEN_TYPE, REACT_SCOPE_TYPE, REACT_CACHE_TYPE, REACT_PROVIDER_TYPE, REACT_CONTEXT_TYPE, REACT_FORWARD_REF_TYPE, REACT_MEMO_TYPE, REACT_LAZY_TYPE } from "../../shared/ReactSymbols";
+import { ReactFragment, ReactPortal, ReactScope } from "../../shared/ReactTypes";
+import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Flags, NoFlags, StaticMask } from "./ReactFiberFlags";
+import { SuspenseInstance } from "./ReactFiberHostConfig";
 import { resolveClassForHotReloading, resolveForwardRefForHotReloading, resolveFunctionForHotReloading } from "./ReactFiberHotReloading.old";
-import { NoLanes } from "./ReactFiberLane.old";
+import { Lanes, NoLanes } from "./ReactFiberLane.old";
+import { OffscreenProps } from "./ReactFiberOffscreenComponent";
 import { Fiber } from "./ReactInternalTypes";
 import { ConcurrentRoot, RootTag } from "./ReactRootTags";
-import { ConcurrentMode, ConcurrentUpdatesByDefaultMode, NoMode, ProfileMode, StrictEffectsMode, StrictLegacyMode, TypeOfMode } from "./ReactTypeOfMode";
+import { ConcurrentMode, ConcurrentUpdatesByDefaultMode, DebugTracingMode, NoMode, ProfileMode, StrictEffectsMode, StrictLegacyMode, TypeOfMode } from "./ReactTypeOfMode";
 import { UpdateQueue } from "./ReactUpdateQueue.old";
-import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, IndeterminateComponent, SimpleMemoComponent, WorkTag } from "./ReactWorkTags";
+import { CacheComponent, ClassComponent, ContextConsumer, ContextProvider, DehydratedFragment, ForwardRef, Fragment, FunctionComponent, HostComponent, HostPortal, HostRoot, HostText, IndeterminateComponent, LazyComponent, LegacyHiddenComponent, MemoComponent, Mode, OffscreenComponent, Profiler, ScopeComponent, SimpleMemoComponent, SuspenseComponent, SuspenseListComponent, WorkTag } from "./ReactWorkTags";
+
+
+function shouldConstruct(Component: Function) {
+  const prototype = Component.prototype;
+  return !!(prototype && prototype.isReactComponent);
+}
 
 let hasBadMapPolyfill: boolean;
 
@@ -254,7 +267,7 @@ export function assignFiberPropertiesInDEV(
 }
 
 /**
- * 这里就是很著名的双缓冲结构
+ * 这里就是很著名的双缓冲结构，返回的是fiber的alternate
  */
 export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   let workInProgress = current.alternate;
@@ -359,4 +372,313 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   }
 
   return workInProgress;
+}
+
+
+export function createFiberFromTypeAndProps(
+  type: any, // React$ElementType
+  key: null | string,
+  pendingProps: any,
+  owner: null | Fiber,
+  mode: TypeOfMode,
+  lanes: Lanes,
+): Fiber {
+  let fiberTag: WorkTag = IndeterminateComponent;
+  // The resolved type is set if we know what the final type will be. I.e. it's not lazy.
+  let resolvedType = type;
+  if (typeof type === 'function') {
+    if (shouldConstruct(type)) {
+      fiberTag = ClassComponent;
+      if (__DEV__) {
+        resolvedType = resolveClassForHotReloading(resolvedType);
+      }
+    } else {
+      if (__DEV__) {
+        resolvedType = resolveFunctionForHotReloading(resolvedType);
+      }
+    }
+  } else if (typeof type === 'string') {
+    fiberTag = HostComponent;
+  } else {
+    getTag: switch (type) {
+      case REACT_FRAGMENT_TYPE:
+        return createFiberFromFragment(pendingProps.children, mode, lanes, key);
+      case REACT_DEBUG_TRACING_MODE_TYPE:
+        fiberTag = Mode;
+        mode |= DebugTracingMode;
+        break;
+      case REACT_STRICT_MODE_TYPE:
+        fiberTag = Mode;
+        mode |= StrictLegacyMode;
+        if (enableStrictEffects && (mode & ConcurrentMode) !== NoMode) {
+          // Strict effects should never run on legacy roots
+          mode |= StrictEffectsMode;
+        }
+        break;
+      case REACT_PROFILER_TYPE:
+        return createFiberFromProfiler(pendingProps, mode, lanes, key);
+      case REACT_SUSPENSE_TYPE:
+        return createFiberFromSuspense(pendingProps, mode, lanes, key);
+      case REACT_SUSPENSE_LIST_TYPE:
+        return createFiberFromSuspenseList(pendingProps, mode, lanes, key);
+      case REACT_OFFSCREEN_TYPE:
+        return createFiberFromOffscreen(pendingProps, mode, lanes, key);
+      case REACT_LEGACY_HIDDEN_TYPE:
+        return createFiberFromLegacyHidden(pendingProps, mode, lanes, key);
+      case REACT_SCOPE_TYPE:
+        if (enableScopeAPI) {
+          return createFiberFromScope(type, pendingProps, mode, lanes, key);
+        }
+      // eslint-disable-next-line no-fallthrough
+      case REACT_CACHE_TYPE:
+        if (enableCache) {
+          return createFiberFromCache(pendingProps, mode, lanes, key);
+        }
+      // eslint-disable-next-line no-fallthrough
+      default: {
+        if (typeof type === 'object' && type !== null) {
+          switch (type.$$typeof) {
+            case REACT_PROVIDER_TYPE:
+              fiberTag = ContextProvider;
+              break getTag;
+            case REACT_CONTEXT_TYPE:
+              // This is a consumer
+              fiberTag = ContextConsumer;
+              break getTag;
+            case REACT_FORWARD_REF_TYPE:
+              fiberTag = ForwardRef;
+              if (__DEV__) {
+                resolvedType = resolveForwardRefForHotReloading(resolvedType);
+              }
+              break getTag;
+            case REACT_MEMO_TYPE:
+              fiberTag = MemoComponent;
+              break getTag;
+            case REACT_LAZY_TYPE:
+              fiberTag = LazyComponent;
+              resolvedType = null;
+              break getTag;
+          }
+        }
+        let info = '';
+        if (__DEV__) {
+          if (
+            type === undefined ||
+            (typeof type === 'object' &&
+              type !== null &&
+              Object.keys(type).length === 0)
+          ) {
+            info +=
+              ' You likely forgot to export your component from the file ' +
+              "it's defined in, or you might have mixed up default and " +
+              'named imports.';
+          }
+          const ownerName = owner ? getComponentNameFromFiber(owner) : null;
+          if (ownerName) {
+            info += '\n\nCheck the render method of `' + ownerName + '`.';
+          }
+        }
+        invariant(
+          false,
+          'Element type is invalid: expected a string (for built-in ' +
+            'components) or a class/function (for composite components) ' +
+            'but got: %s.%s',
+          type == null ? type : typeof type,
+          info,
+        );
+      }
+    }
+  }
+
+  const fiber = createFiber(fiberTag, pendingProps, key, mode);
+  fiber.elementType = type;
+  fiber.type = resolvedType;
+  fiber.lanes = lanes;
+
+  if (__DEV__) {
+    fiber._debugOwner = owner;
+  }
+
+  return fiber;
+}
+
+export function createFiberFromElement(
+  element: ReactElement,
+  mode: TypeOfMode,
+  lanes: Lanes,
+): Fiber {
+  let owner = null;
+  if (__DEV__) {
+    owner = element._owner;
+  }
+  const type = element.type;
+  const key = element.key;
+  const pendingProps = element.props;
+  const fiber = createFiberFromTypeAndProps(
+    type,
+    key,
+    pendingProps,
+    owner,
+    mode,
+    lanes,
+  );
+  if (__DEV__) {
+    fiber._debugSource = element._source;
+    fiber._debugOwner = element._owner;
+  }
+  return fiber;
+}
+
+export function createFiberFromFragment(
+  elements: ReactFragment,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+): Fiber {
+  const fiber = createFiber(Fragment, elements, key, mode);
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+function createFiberFromScope(
+  scope: ReactScope,
+  pendingProps: any,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+) {
+  const fiber = createFiber(ScopeComponent, pendingProps, key, mode);
+  fiber.type = scope;
+  fiber.elementType = scope;
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+function createFiberFromProfiler(
+  pendingProps: any,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+): Fiber {
+  if (__DEV__) {
+    if (typeof pendingProps.id !== 'string') {
+      console.error(
+        'Profiler must specify an "id" of type `string` as a prop. Received the type `%s` instead.',
+        typeof pendingProps.id,
+      );
+    }
+  }
+
+  const fiber = createFiber(Profiler, pendingProps, key, mode | ProfileMode);
+  fiber.elementType = REACT_PROFILER_TYPE;
+  fiber.lanes = lanes;
+
+  if (enableProfilerTimer) {
+    fiber.stateNode = {
+      effectDuration: 0,
+      passiveEffectDuration: 0,
+    };
+  }
+
+  return fiber;
+}
+
+export function createFiberFromSuspense(
+  pendingProps: any,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+) {
+  const fiber = createFiber(SuspenseComponent, pendingProps, key, mode);
+  fiber.elementType = REACT_SUSPENSE_TYPE;
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+export function createFiberFromSuspenseList(
+  pendingProps: any,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+) {
+  const fiber = createFiber(SuspenseListComponent, pendingProps, key, mode);
+  fiber.elementType = REACT_SUSPENSE_LIST_TYPE;
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+export function createFiberFromOffscreen(
+  pendingProps: OffscreenProps,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+) {
+  const fiber = createFiber(OffscreenComponent, pendingProps, key, mode);
+  fiber.elementType = REACT_OFFSCREEN_TYPE;
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+export function createFiberFromLegacyHidden(
+  pendingProps: OffscreenProps,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+) {
+  const fiber = createFiber(LegacyHiddenComponent, pendingProps, key, mode);
+  fiber.elementType = REACT_LEGACY_HIDDEN_TYPE;
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+export function createFiberFromCache(
+  pendingProps: any,
+  mode: TypeOfMode,
+  lanes: Lanes,
+  key: null | string,
+) {
+  const fiber = createFiber(CacheComponent, pendingProps, key, mode);
+  fiber.elementType = REACT_CACHE_TYPE;
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+export function createFiberFromText(
+  content: string,
+  mode: TypeOfMode,
+  lanes: Lanes,
+): Fiber {
+  const fiber = createFiber(HostText, content, null, mode);
+  fiber.lanes = lanes;
+  return fiber;
+}
+
+export function createFiberFromHostInstanceForDeletion(): Fiber {
+  const fiber = createFiber(HostComponent, null, null, NoMode);
+  fiber.elementType = 'DELETED';
+  return fiber;
+}
+
+export function createFiberFromDehydratedFragment(
+  dehydratedNode: SuspenseInstance,
+): Fiber {
+  const fiber = createFiber(DehydratedFragment, null, null, NoMode);
+  fiber.stateNode = dehydratedNode;
+  return fiber;
+}
+
+export function createFiberFromPortal(
+  portal: ReactPortal,
+  mode: TypeOfMode,
+  lanes: Lanes,
+): Fiber {
+  const pendingProps = portal.children !== null ? portal.children : [];
+  const fiber = createFiber(HostPortal, pendingProps, portal.key, mode);
+  fiber.lanes = lanes;
+  fiber.stateNode = {
+    containerInfo: portal.containerInfo,
+    pendingChildren: null, // Used by persistent updates
+    implementation: portal.implementation,
+  };
+  return fiber;
 }

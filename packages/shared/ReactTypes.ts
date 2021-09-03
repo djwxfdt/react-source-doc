@@ -108,3 +108,12 @@ export type MutableSource<Source extends $NonMaybeType<mixed>> = {
   _currentlyRenderingFiber?: Fiber | null,
   _initialVersionAsOfFirstRender?: MutableSourceVersion | null,
 };
+
+export type ReactScope = {
+  $$typeof: Symbol | number,
+};
+
+export type OffscreenMode =
+  | 'hidden'
+  | 'unstable-defer-without-hiding'
+  | 'visible';
