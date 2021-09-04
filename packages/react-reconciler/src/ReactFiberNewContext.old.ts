@@ -48,6 +48,11 @@ export function checkIfContextChanged(currentDependencies: Dependencies) {
   return false;
 }
 
+/**
+ * 重制一些全局变量，为后面的逻辑做准备
+ * 
+ * 所以这里代码无力吐槽。各种全局变量。
+ */
 export function prepareToReadContext(
   workInProgress: Fiber,
   renderLanes: Lanes,

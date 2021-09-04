@@ -73,6 +73,9 @@ export function intersectLanes(a: Lanes | Lane, b: Lanes | Lane): Lanes {
   return a & b;
 }
 
+/**
+ * 有公共lane
+ */
 export function includesSomeLane(a: Lanes | Lane, b: Lanes | Lane) {
   return (a & b) !== NoLanes;
 }

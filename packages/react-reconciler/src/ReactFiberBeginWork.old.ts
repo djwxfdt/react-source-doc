@@ -164,6 +164,9 @@ function remountFiber(
   }
 }
 
+/**
+ * TODO,没看明白
+ */
 function checkScheduledUpdateOrContext(
   current: Fiber,
   renderLanes: Lanes,
@@ -440,7 +443,13 @@ export function reconcileChildren(
   }
 }
 
-
+/**
+ * 这是针对类组件和function组件的，因为class组件或者function组件，本质都是function。
+ * 
+ * react一开始并不知道这是哪种，就是悬而未决。不过执行过一次之后，就知道了
+ * 
+ * 这个方法只是用于组件的mount操作，这里略显疑惑。
+ */
 function mountIndeterminateComponent(
   _current: Fiber | null,
   workInProgress: Fiber,
@@ -465,6 +474,9 @@ function mountIndeterminateComponent(
       Component,
       false,
     );
+    /**
+     * 这里忽略，是兼容老版本用的
+     */
     context = getMaskedContext(workInProgress, unmaskedContext);
   }
 
@@ -677,6 +689,10 @@ export function beginWork(
     }
   }
 
+  /**
+   * 解释一下bailout：这是react的一个优化，在render之前先检测这个component是不是真的需要render,如果不需要就bailout
+   */
+
   if (current !== null) {
     const oldProps = current.memoizedProps;
     const newProps = workInProgress.pendingProps;
@@ -690,7 +706,7 @@ export function beginWork(
       // If props or context changed, mark the fiber as having performed work.
       // This may be unset if the props are determined to be equal later (memo).
       /**
-       * 如果props发生了变化或者context发生了变化，就代表有更新
+       * 如果props发生了变化或者context发生了变化，就代表有更新,这里只是初步判断，后面还有更复杂的逻辑
        */
       didReceiveUpdate = true;
     } else {

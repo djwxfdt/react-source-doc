@@ -168,6 +168,11 @@ export function getUnmaskedContext(
   }
 }
 
+/**
+ * 这个是为了兼容老版本的react的context api。新版本中返回emptyContextObject。
+ * 
+ * 请看这里：https://zh-hans.reactjs.org/docs/legacy-context.html（可以不看）
+ */
 export function getMaskedContext(
   workInProgress: Fiber,
   unmaskedContext: Record<string, any>,
