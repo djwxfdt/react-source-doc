@@ -1,7 +1,7 @@
 import checkPropTypes from "../../shared/checkPropTypes";
 import { disableLegacyContext } from "../../shared/ReactFeatureFlags";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
-import { createCursor, StackCursor } from "./ReactFiberStack.old";
+import { createCursor, push, StackCursor } from "./ReactFiberStack.old";
 import { Fiber } from "./ReactInternalTypes";
 import { ClassComponent, HostRoot } from "./ReactWorkTags";
 
@@ -218,5 +218,31 @@ export function hasContextChanged(): boolean {
     return false;
   } else {
     return didPerformWorkStackCursor.current;
+  }
+}
+
+export function pushContextProvider(workInProgress: Fiber): boolean {
+  if (disableLegacyContext) {
+    return false;
+  } else {
+    const instance = workInProgress.stateNode;
+    // We push the context as early as possible to ensure stack integrity.
+    // If the instance does not exist yet, we will push null at first,
+    // and replace it on the stack later when invalidating the context.
+    const memoizedMergedChildContext =
+      (instance && instance.__reactInternalMemoizedMergedChildContext) ||
+      emptyContextObject;
+
+    // Remember the parent context so we can merge with it later.
+    // Inherit the parent's did-perform-work value to avoid inadvertently blocking updates.
+    previousContext = contextStackCursor.current;
+    push(contextStackCursor, memoizedMergedChildContext, workInProgress);
+    push(
+      didPerformWorkStackCursor,
+      didPerformWorkStackCursor.current,
+      workInProgress,
+    );
+
+    return true;
   }
 }

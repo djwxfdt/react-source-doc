@@ -1,7 +1,7 @@
 import checkPropTypes from "../../shared/checkPropTypes";
 import getComponentNameFromType from "../../shared/getComponentNameFromType";
 import invariant from "../../shared/invariant";
-import { disableLegacyContext, enableCache, enableLazyContextPropagation, enableProfilerTimer, enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
+import { disableLegacyContext, disableModulePatternComponents, enableCache, enableLazyContextPropagation, enableProfilerTimer, enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
 import { createFiberFromTypeAndProps } from "./ReactFiber.old";
 import { ChildDeletion, DidCapture, ForceUpdateForLegacySuspense, NoFlags, PerformedWork, Placement } from "./ReactFiberFlags";
 import { includesSomeLane, Lanes, NoLanes } from "./ReactFiberLane.old";
@@ -12,6 +12,8 @@ import {
   getMaskedContext,
   getUnmaskedContext,
   hasContextChanged as hasLegacyContextChanged,
+  pushContextProvider as pushLegacyContextProvider,
+  isContextProvider as isLegacyContextProvider,
 } from './ReactFiberContext.old';
 import { checkIfContextChanged, prepareToReadContext } from "./ReactFiberNewContext.old";
 import { markComponentRenderStarted, markComponentRenderStopped } from "./SchedulingProfiler";
@@ -22,6 +24,7 @@ import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
 import { StrictLegacyMode } from "./ReactTypeOfMode";
 import { disableLogs, reenableLogs } from "../../shared/ConsolePatchingDev";
 import { initializeUpdateQueue } from "./ReactUpdateQueue.old";
+import { adoptClassInstance, mountClassInstance } from "./ReactFiberClassComponent.old";
 
 const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 
@@ -390,6 +393,53 @@ function attemptEarlyBailoutIfNoScheduledUpdate(
   // }
   return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
 }
+
+function finishClassComponent(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  Component: any,
+  shouldUpdate: boolean,
+  hasContext: boolean,
+  renderLanes: Lanes,
+) {
+  // Refs should update even if shouldComponentUpdate returns false
+  return workInProgress.child;
+}
+
+
+export function reconcileChildren(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  nextChildren: any,
+  renderLanes: Lanes,
+) {
+  if (current === null) {
+    // If this is a fresh new component that hasn't been rendered yet, we
+    // won't update its child set by applying minimal side-effects. Instead,
+    // we will add them all to the child before it gets rendered. That means
+    // we can optimize this reconciliation pass by not tracking side-effects.
+    workInProgress.child = mountChildFibers(
+      workInProgress,
+      null,
+      nextChildren,
+      renderLanes,
+    );
+  } else {
+    // If the current child is the same as the work in progress, it means that
+    // we haven't yet started any work on these children. Therefore, we use
+    // the clone algorithm to create a copy of all the current children.
+
+    // If we had any progressed work already, that is invalid at this point so
+    // let's throw it out.
+    workInProgress.child = reconcileChildFibers(
+      workInProgress,
+      current.child,
+      nextChildren,
+      renderLanes,
+    );
+  }
+}
+
 
 function mountIndeterminateComponent(
   _current: Fiber | null,
@@ -858,4 +908,9 @@ export function markWorkInProgressReceivedUpdate() {
 
 export function checkIfWorkInProgressReceivedUpdate() {
   return didReceiveUpdate;
+}
+
+
+function validateFunctionComponentInDev(workInProgress: Fiber, Component: any) {
+  
 }

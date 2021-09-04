@@ -76,3 +76,5 @@ export const skipUnmountedBoundaries = false;
 export const enableScopeAPI = false;
 
 export const enableLazyContextPropagation = false;
+
+export const disableModulePatternComponents = false;
