@@ -1,19 +1,55 @@
 import checkPropTypes from "../../shared/checkPropTypes";
 import getComponentNameFromType from "../../shared/getComponentNameFromType";
 import invariant from "../../shared/invariant";
-import { enableCache, enableLazyContextPropagation, enableProfilerTimer } from "../../shared/ReactFeatureFlags";
+import { disableLegacyContext, enableCache, enableLazyContextPropagation, enableProfilerTimer, enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
 import { createFiberFromTypeAndProps } from "./ReactFiber.old";
-import { ChildDeletion, DidCapture, ForceUpdateForLegacySuspense, NoFlags, Placement } from "./ReactFiberFlags";
+import { ChildDeletion, DidCapture, ForceUpdateForLegacySuspense, NoFlags, PerformedWork, Placement } from "./ReactFiberFlags";
 import { includesSomeLane, Lanes, NoLanes } from "./ReactFiberLane.old";
 import { Fiber } from "./ReactInternalTypes";
 import { IndeterminateComponent, LazyComponent, FunctionComponent, ClassComponent, HostRoot, HostComponent, HostText, SuspenseComponent, HostPortal, ForwardRef, Fragment, Mode, Profiler, ContextProvider, ContextConsumer, MemoComponent, SimpleMemoComponent, IncompleteClassComponent, SuspenseListComponent, ScopeComponent, OffscreenComponent, LegacyHiddenComponent, CacheComponent } from "./ReactWorkTags";
 
 import {
+  getMaskedContext,
+  getUnmaskedContext,
   hasContextChanged as hasLegacyContextChanged,
 } from './ReactFiberContext.old';
-import { checkIfContextChanged } from "./ReactFiberNewContext.old";
+import { checkIfContextChanged, prepareToReadContext } from "./ReactFiberNewContext.old";
+import { markComponentRenderStarted, markComponentRenderStopped } from "./SchedulingProfiler";
+import ReactSharedInternals from "../../shared/ReactSharedInternals";
+import { setIsRendering } from "./ReactCurrentFiber";
+import { renderWithHooks } from "./ReactFiberHooks.old";
+import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
+import { StrictLegacyMode } from "./ReactTypeOfMode";
+import { disableLogs, reenableLogs } from "../../shared/ConsolePatchingDev";
+import { initializeUpdateQueue } from "./ReactUpdateQueue.old";
 
-let didReceiveUpdate: boolean = false;
+const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
+
+
+let didReceiveUpdate = false;
+
+let didWarnAboutBadClass: any;
+let didWarnAboutModulePatternComponent: any;
+let didWarnAboutContextTypeOnFunctionComponent;
+let didWarnAboutGetDerivedStateOnFunctionComponent;
+let didWarnAboutFunctionRefs;
+export let didWarnAboutReassigningProps: any;
+let didWarnAboutRevealOrder;
+let didWarnAboutTailOptions;
+let didWarnAboutDefaultPropsOnFunctionComponent;
+
+if (__DEV__) {
+  didWarnAboutBadClass = {};
+  didWarnAboutModulePatternComponent = {};
+  didWarnAboutContextTypeOnFunctionComponent = {};
+  didWarnAboutGetDerivedStateOnFunctionComponent = {};
+  didWarnAboutFunctionRefs = {};
+  didWarnAboutReassigningProps = false;
+  didWarnAboutRevealOrder = {};
+  didWarnAboutTailOptions = {};
+  didWarnAboutDefaultPropsOnFunctionComponent = {};
+}
+
 
 /**
  * TODO
@@ -59,6 +95,11 @@ function bailoutOnAlreadyFinishedWork(
   return workInProgress.child;
 }
 
+/**
+ * 做了什么事？
+ * 
+ * 在fiber树上，把当前的fiber节点用新的fiber节点替换，并加其父节点的状态标记为有新增
+ */
 function remountFiber(
   current: Fiber,
   oldWorkInProgress: Fiber,
@@ -351,12 +392,213 @@ function attemptEarlyBailoutIfNoScheduledUpdate(
 }
 
 function mountIndeterminateComponent(
-  _current,
-  workInProgress,
-  Component,
-  renderLanes,
+  _current: Fiber | null,
+  workInProgress: Fiber,
+  Component: any,
+  renderLanes: Lanes,
 ) {
+  if (_current !== null) {
+    // An indeterminate component only mounts if it suspended inside a non-
+    // concurrent tree, in an inconsistent state. We want to treat it like
+    // a new mount, even though an empty version of it already committed.
+    // Disconnect the alternate pointers.
+    _current.alternate = null;
+    workInProgress.alternate = null;
+    // Since this is conceptually a new fiber, schedule a Placement effect
+    workInProgress.flags |= Placement;
+  }
+  const props = workInProgress.pendingProps;
+  let context;
+  if (!disableLegacyContext) {
+    const unmaskedContext = getUnmaskedContext(
+      workInProgress,
+      Component,
+      false,
+    );
+    context = getMaskedContext(workInProgress, unmaskedContext);
+  }
+
+  prepareToReadContext(workInProgress, renderLanes);
+  let value;
+
+  if (enableSchedulingProfiler) {
+    markComponentRenderStarted(workInProgress);
+  }
+
+  if (__DEV__) {
+    if (
+      Component.prototype &&
+      typeof Component.prototype.render === 'function'
+    ) {
+      const componentName = getComponentNameFromType(Component) || 'Unknown';
+
+      if (!didWarnAboutBadClass[componentName]) {
+        console.error(
+          "The <%s /> component appears to have a render method, but doesn't extend React.Component. " +
+            'This is likely to cause errors. Change %s to extend React.Component instead.',
+          componentName,
+          componentName,
+        );
+        didWarnAboutBadClass[componentName] = true;
+      }
+    }
+
+    if (workInProgress.mode & StrictLegacyMode) {
+      ReactStrictModeWarnings.recordLegacyContextWarning(workInProgress, null);
+    }
+
+    setIsRendering(true);
+    ReactCurrentOwner.current = workInProgress;
+    value = renderWithHooks(
+      null,
+      workInProgress,
+      Component,
+      props,
+      context,
+      renderLanes,
+    );
+    setIsRendering(false);
+  } else {
+    value = renderWithHooks(
+      null,
+      workInProgress,
+      Component,
+      props,
+      context,
+      renderLanes,
+    );
+  }
+
+  if (enableSchedulingProfiler) {
+    markComponentRenderStopped();
+  }
+
+  // React DevTools reads this flag.
+  workInProgress.flags |= PerformedWork;
+
+  if (__DEV__) {
+    // Support for module components is deprecated and is removed behind a flag.
+    // Whether or not it would crash later, we want to show a good message in DEV first.
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      typeof value.render === 'function' &&
+      value.$$typeof === undefined
+    ) {
+      const componentName = getComponentNameFromType(Component) || 'Unknown';
+      if (!didWarnAboutModulePatternComponent[componentName]) {
+        console.error(
+          'The <%s /> component appears to be a function component that returns a class instance. ' +
+            'Change %s to a class that extends React.Component instead. ' +
+            "If you can't use a class try assigning the prototype on the function as a workaround. " +
+            "`%s.prototype = React.Component.prototype`. Don't use an arrow function since it " +
+            'cannot be called with `new` by React.',
+          componentName,
+          componentName,
+          componentName,
+        );
+        didWarnAboutModulePatternComponent[componentName] = true;
+      }
+    }
+  }
+
+
+  if (
+    // Run these checks in production only if the flag is off.
+    // Eventually we'll delete this branch altogether.
+    !disableModulePatternComponents &&
+    typeof value === 'object' &&
+    value !== null &&
+    typeof value.render === 'function' &&
+    value.$$typeof === undefined
+  ) {
+    if (__DEV__) {
+      const componentName = getComponentNameFromType(Component) || 'Unknown';
+      if (!didWarnAboutModulePatternComponent[componentName]) {
+        console.error(
+          'The <%s /> component appears to be a function component that returns a class instance. ' +
+            'Change %s to a class that extends React.Component instead. ' +
+            "If you can't use a class try assigning the prototype on the function as a workaround. " +
+            "`%s.prototype = React.Component.prototype`. Don't use an arrow function since it " +
+            'cannot be called with `new` by React.',
+          componentName,
+          componentName,
+          componentName,
+        );
+        didWarnAboutModulePatternComponent[componentName] = true;
+      }
+    }
+
+    // Proceed under the assumption that this is a class instance
+    workInProgress.tag = ClassComponent;
+
+    // Throw out any hooks that were used.
+    workInProgress.memoizedState = null;
+    workInProgress.updateQueue = null;
+
+    // Push context providers early to prevent context stack mismatches.
+    // During mounting we don't know the child context yet as the instance doesn't exist.
+    // We will invalidate the child context in finishClassComponent() right after rendering.
+    let hasContext = false;
+    if (isLegacyContextProvider(Component)) {
+      hasContext = true;
+      pushLegacyContextProvider(workInProgress);
+    } else {
+      hasContext = false;
+    }
+
+    workInProgress.memoizedState =
+      value.state !== null && value.state !== undefined ? value.state : null;
+
+    initializeUpdateQueue(workInProgress);
+
+    adoptClassInstance(workInProgress, value);
+    mountClassInstance(workInProgress, Component, props, renderLanes);
+    return finishClassComponent(
+      null,
+      workInProgress,
+      Component,
+      true,
+      hasContext,
+      renderLanes,
+    );
+  } else {
+    // Proceed under the assumption that this is a function component
+    workInProgress.tag = FunctionComponent;
+    if (__DEV__) {
+      if (disableLegacyContext && Component.contextTypes) {
+        console.error(
+          '%s uses the legacy contextTypes API which is no longer supported. ' +
+            'Use React.createContext() with React.useContext() instead.',
+          getComponentNameFromType(Component) || 'Unknown',
+        );
+      }
+
+      if (
+        debugRenderPhaseSideEffectsForStrictMode &&
+        workInProgress.mode & StrictLegacyMode
+      ) {
+        disableLogs();
+        try {
+          value = renderWithHooks(
+            null,
+            workInProgress,
+            Component,
+            props,
+            context,
+            renderLanes,
+          );
+        } finally {
+          reenableLogs();
+        }
+      }
+    }
+    reconcileChildren(null, workInProgress, value, renderLanes);
+    if (__DEV__) {
+      validateFunctionComponentInDev(workInProgress, Component);
+    }
     return workInProgress.child;
+  }
 }
 
 /**
@@ -607,4 +849,13 @@ export function beginWork(
       'React. Please file an issue.',
     workInProgress.tag,
   );
+}
+
+
+export function markWorkInProgressReceivedUpdate() {
+  didReceiveUpdate = true;
+}
+
+export function checkIfWorkInProgressReceivedUpdate() {
+  return didReceiveUpdate;
 }

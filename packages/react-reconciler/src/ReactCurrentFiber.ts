@@ -6,7 +6,7 @@ import { Fiber } from "./ReactInternalTypes";
 const ReactDebugCurrentFrame = ReactSharedInternals.ReactDebugCurrentFrame;
 
 export let current: Fiber | null = null;
-export let isRendering: boolean = false;
+export let isRendering = false;
 
 
 
@@ -36,5 +36,12 @@ export function setCurrentFiber(fiber: Fiber) {
     ReactDebugCurrentFrame.getCurrentStack = getCurrentFiberStackInDev;
     current = fiber;
     isRendering = false;
+  }
+}
+
+
+export function setIsRendering(rendering: boolean) {
+  if (__DEV__) {
+    isRendering = rendering;
   }
 }

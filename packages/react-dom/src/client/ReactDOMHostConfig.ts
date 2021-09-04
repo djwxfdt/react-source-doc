@@ -65,3 +65,5 @@ export const isPrimaryRenderer = true;
  * 就是clearTimeout
  */
 export const cancelTimeout = typeof clearTimeout === 'function' ? clearTimeout : (undefined as any);
+
+export const warnsIfNotActing = true;

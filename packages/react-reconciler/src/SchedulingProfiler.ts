@@ -1,5 +1,7 @@
 import { enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
+import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { Lane, Lanes } from "./ReactFiberLane.old";
+import { Fiber } from "./ReactInternalTypes";
 
 
 let supportsUserTimingV3 = false;
@@ -38,6 +40,23 @@ export function markRenderStarted(lanes: Lanes): void {
   if (enableSchedulingProfiler) {
     if (supportsUserTimingV3) {
       markAndClear(`--render-start-${lanes}`);
+    }
+  }
+}
+export function markComponentRenderStarted(fiber: Fiber): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      const componentName = getComponentNameFromFiber(fiber) || 'Unknown';
+      // TODO (scheduling profiler) Add component stack id
+      markAndClear(`--component-render-start-${componentName}`);
+    }
+  }
+}
+
+export function markComponentRenderStopped(): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      markAndClear('--component-render-stop');
     }
   }
 }
