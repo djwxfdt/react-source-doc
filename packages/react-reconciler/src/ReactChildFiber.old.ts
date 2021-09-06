@@ -4,11 +4,31 @@ import isArray from "../../shared/isArray";
 import { ReactElement } from "../../shared/ReactElementType";
 import { REACT_FRAGMENT_TYPE, REACT_LAZY_TYPE, REACT_ELEMENT_TYPE, REACT_PORTAL_TYPE, getIteratorFn } from "../../shared/ReactSymbols";
 import { ReactPortal } from "../../shared/ReactTypes";
+import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { createWorkInProgress, createFiberFromText, createFiberFromElement, createFiberFromPortal, createFiberFromFragment } from "./ReactFiber.old";
 import { ChildDeletion, Placement } from "./ReactFiberFlags";
 import { Lanes } from "./ReactFiberLane.old";
 import { Fiber } from "./ReactInternalTypes";
 import { HostText, HostPortal, Fragment } from "./ReactWorkTags";
+
+
+let ownerHasFunctionTypeWarning: any = {};
+function warnOnFunctionType(returnFiber: Fiber) {
+  if (__DEV__) {
+    const componentName = getComponentNameFromFiber(returnFiber) || 'Component';
+
+    if (ownerHasFunctionTypeWarning[componentName]) {
+      return;
+    }
+    ownerHasFunctionTypeWarning[componentName] = true;
+
+    console.error(
+      'Functions are not valid as a React child. This may happen if ' +
+        'you return a Component instead of <Component /> from render. ' +
+        'Or maybe you meant to call this function rather than return it.',
+    );
+  }
+}
 
 // This wrapper function exists because I expect to clone the code in each path
 // to be able to optimize each path individually by branching early. This needs
