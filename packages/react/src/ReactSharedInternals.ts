@@ -1,14 +1,15 @@
 // import assign from 'object-assign';
-// import ReactCurrentDispatcher from './ReactCurrentDispatcher';
+import ReactCurrentDispatcher from './ReactCurrentDispatcher';
 import ReactCurrentBatchConfig from './ReactCurrentBatchConfig';
 import ReactCurrentActQueue from './ReactCurrentActQueue';
-// import ReactCurrentOwner from './ReactCurrentOwner';
+import ReactCurrentOwner from './ReactCurrentOwner';
 // import ReactDebugCurrentFrame from './ReactDebugCurrentFrame';
 
-const ReactSharedInternals: Record<string, any> = {
-  // ReactCurrentDispatcher,
+const ReactSharedInternals = {
+  ReactCurrentDispatcher,
   ReactCurrentBatchConfig,
-  // ReactCurrentOwner,
+  ReactCurrentActQueue: null as typeof ReactCurrentActQueue | null,
+  ReactCurrentOwner,
   // Used by renderers to avoid bundling object-assign twice in UMD bundles:
   // assign,
 };

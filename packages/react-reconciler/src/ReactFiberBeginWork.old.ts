@@ -1,7 +1,7 @@
 import checkPropTypes from "../../shared/checkPropTypes";
 import getComponentNameFromType from "../../shared/getComponentNameFromType";
 import invariant from "../../shared/invariant";
-import { disableLegacyContext, disableModulePatternComponents, enableCache, enableLazyContextPropagation, enableProfilerTimer, enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
+import { debugRenderPhaseSideEffectsForStrictMode, disableLegacyContext, disableModulePatternComponents, enableCache, enableLazyContextPropagation, enableProfilerTimer, enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
 import { createFiberFromTypeAndProps } from "./ReactFiber.old";
 import { ChildDeletion, DidCapture, ForceUpdateForLegacySuspense, NoFlags, PerformedWork, Placement } from "./ReactFiberFlags";
 import { includesSomeLane, Lanes, NoLanes } from "./ReactFiberLane.old";
@@ -25,6 +25,7 @@ import { StrictLegacyMode } from "./ReactTypeOfMode";
 import { disableLogs, reenableLogs } from "../../shared/ConsolePatchingDev";
 import { initializeUpdateQueue } from "./ReactUpdateQueue.old";
 import { adoptClassInstance, mountClassInstance } from "./ReactFiberClassComponent.old";
+import { mountChildFibers, reconcileChildFibers } from "./ReactChildFiber.old";
 
 const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 

@@ -51,6 +51,9 @@ export const enableStrictEffects = __DEV__;
 
 export const replayFailedUnitOfWorkWithInvokeGuardedCallback = __DEV__;
 
+export const debugRenderPhaseSideEffectsForStrictMode = __DEV__;
+
+
 
 // Updates that occur in the render phase are not officially supported. But when
 // they do occur, we defer them to a subsequent render by picking a lane that's

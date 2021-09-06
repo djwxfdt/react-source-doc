@@ -344,7 +344,9 @@ export function resetHooksAfterThrow(): void {
   didScheduleRenderPhaseUpdateDuringThisPass = false;
 }
 
-
+/**
+ * 调用组件方法获取render后的children，并对mount阶段和update阶段设置不同的dispacher
+ */
 export function renderWithHooks<Props, SecondArg>(
   current: Fiber | null,
   workInProgress: Fiber,
