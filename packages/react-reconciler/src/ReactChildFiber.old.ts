@@ -467,6 +467,11 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     return null;
   }
 
+  /**
+   * 检查当前需要比较的fiber是否和新fiber的key一样，如果key不一样，就返回null
+   * 
+   * 如果key一样，再检查类型，如果一样则拷贝一份fiber，如果不一样则标记为删除
+   */
   function updateSlot(
     returnFiber: Fiber,
     oldFiber: Fiber | null,
@@ -672,6 +677,9 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     // If you change this code, also update reconcileChildrenIterator() which
     // uses the same algorithm.
 
+    /**
+     * 检查数组里面是否有重复的key
+     */
     if (__DEV__) {
       // First, validate keys.
       let knownKeys = null;
@@ -695,6 +703,12 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
       } else {
         nextOldFiber = oldFiber.sibling;
       }
+
+      /**
+       * 重要！！从这里可以看出，react在比较children的时候，会有两个指针分别从第一个child开始
+       * 
+       * 如果新的child的key值和老的不一样，这时候新数组的指针向后移，老的不动。
+       */
       const newFiber = updateSlot(
         returnFiber,
         oldFiber,
