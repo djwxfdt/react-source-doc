@@ -2,17 +2,22 @@
 import invariant from "../../shared/invariant";
 import isArray from "../../shared/isArray";
 import { ReactElement } from "../../shared/ReactElementType";
+import { enableLazyElements, warnAboutStringRefs } from "../../shared/ReactFeatureFlags";
 import { REACT_FRAGMENT_TYPE, REACT_LAZY_TYPE, REACT_ELEMENT_TYPE, REACT_PORTAL_TYPE, getIteratorFn } from "../../shared/ReactSymbols";
 import { ReactPortal } from "../../shared/ReactTypes";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { createWorkInProgress, createFiberFromText, createFiberFromElement, createFiberFromPortal, createFiberFromFragment } from "./ReactFiber.old";
+import { emptyRefsObject } from "./ReactFiberClassComponent.old";
 import { ChildDeletion, Placement } from "./ReactFiberFlags";
+import { isCompatibleFamilyForHotReloading } from "./ReactFiberHotReloading.old";
 import { Lanes } from "./ReactFiberLane.old";
 import { Fiber } from "./ReactInternalTypes";
-import { HostText, HostPortal, Fragment } from "./ReactWorkTags";
+import { StrictLegacyMode } from "./ReactTypeOfMode";
+import { HostText, HostPortal, Fragment, ClassComponent } from "./ReactWorkTags";
 
-
+let didWarnAboutStringRefs:any = {};
 let ownerHasFunctionTypeWarning: any = {};
+
 function warnOnFunctionType(returnFiber: Fiber) {
   if (__DEV__) {
     const componentName = getComponentNameFromFiber(returnFiber) || 'Component';
@@ -28,6 +33,142 @@ function warnOnFunctionType(returnFiber: Fiber) {
         'Or maybe you meant to call this function rather than return it.',
     );
   }
+}
+
+function coerceRef(
+  returnFiber: Fiber,
+  current: Fiber | null,
+  element: ReactElement,
+) {
+  const mixedRef = element.ref;
+  if (
+    mixedRef !== null &&
+    typeof mixedRef !== 'function' &&
+    typeof mixedRef !== 'object'
+  ) {
+    if (__DEV__) {
+      // TODO: Clean this up once we turn on the string ref warning for
+      // everyone, because the strict mode case will no longer be relevant
+      if (
+        (returnFiber.mode & StrictLegacyMode || warnAboutStringRefs) &&
+        // We warn in ReactElement.js if owner and self are equal for string refs
+        // because these cannot be automatically converted to an arrow function
+        // using a codemod. Therefore, we don't have to warn about string refs again.
+        !(
+          element._owner &&
+          element._self &&
+          element._owner.stateNode !== element._self
+        )
+      ) {
+        const componentName =
+          getComponentNameFromFiber(returnFiber) || 'Component';
+        if (!didWarnAboutStringRefs[componentName]) {
+          if (warnAboutStringRefs) {
+            console.error(
+              'Component "%s" contains the string ref "%s". Support for string refs ' +
+                'will be removed in a future major release. We recommend using ' +
+                'useRef() or createRef() instead. ' +
+                'Learn more about using refs safely here: ' +
+                'https://reactjs.org/link/strict-mode-string-ref',
+              componentName,
+              mixedRef,
+            );
+          } else {
+            console.error(
+              'A string ref, "%s", has been found within a strict mode tree. ' +
+                'String refs are a source of potential bugs and should be avoided. ' +
+                'We recommend using useRef() or createRef() instead. ' +
+                'Learn more about using refs safely here: ' +
+                'https://reactjs.org/link/strict-mode-string-ref',
+              mixedRef,
+            );
+          }
+          didWarnAboutStringRefs[componentName] = true;
+        }
+      }
+    }
+
+    if (element._owner) {
+      const owner: Fiber = (element._owner as any);
+      let inst: any;
+      if (owner) {
+        const ownerFiber = owner;
+        invariant(
+          ownerFiber.tag === ClassComponent,
+          'Function components cannot have string refs. ' +
+            'We recommend using useRef() instead. ' +
+            'Learn more about using refs safely here: ' +
+            'https://reactjs.org/link/strict-mode-string-ref',
+        );
+        inst = ownerFiber.stateNode;
+      }
+      invariant(
+        inst,
+        'Missing owner for string ref %s. This error is likely caused by a ' +
+          'bug in React. Please file an issue.',
+        mixedRef,
+      );
+      const stringRef = '' + mixedRef;
+      // Check if previous string ref matches new string ref
+      if (
+        current !== null &&
+        current.ref !== null &&
+        typeof current.ref === 'function' &&
+        current.ref._stringRef === stringRef
+      ) {
+        return current.ref;
+      }
+      const ref = function(value: any) {
+        let refs = inst.refs;
+        if (refs === emptyRefsObject) {
+          // This is a lazy pooled frozen object, so we need to initialize.
+          refs = inst.refs = {};
+        }
+        if (value === null) {
+          delete refs[stringRef];
+        } else {
+          refs[stringRef] = value;
+        }
+      };
+      ref._stringRef = stringRef;
+      return ref;
+    } else {
+      invariant(
+        typeof mixedRef === 'string',
+        'Expected ref to be a function, a string, an object returned by React.createRef(), or null.',
+      );
+      invariant(
+        element._owner,
+        'Element ref was specified as a string (%s) but no owner was set. This could happen for one of' +
+          ' the following reasons:\n' +
+          '1. You may be adding a ref to a function component\n' +
+          "2. You may be adding a ref to a component that was not created inside a component's render method\n" +
+          '3. You have multiple copies of React loaded\n' +
+          'See https://reactjs.org/link/refs-must-have-owner for more information.',
+        mixedRef,
+      );
+    }
+  }
+  return mixedRef;
+}
+
+function throwOnInvalidObjectType(returnFiber: Fiber, newChild: Object) {
+  const childString = Object.prototype.toString.call(newChild);
+  invariant(
+    false,
+    'Objects are not valid as a React child (found: %s). ' +
+      'If you meant to render a collection of children, use an array ' +
+      'instead.',
+    childString === '[object Object]'
+      ? 'object with keys {' + Object.keys(newChild).join(', ') + '}'
+      : childString,
+  );
+}
+
+function resolveLazy(lazyType: any) {
+  const payload = lazyType._payload;
+  const init = lazyType._init;
+  return init(payload);
 }
 
 // This wrapper function exists because I expect to clone the code in each path
@@ -870,6 +1011,11 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     return created;
   }
 
+  /**
+   * 这里主要判断key值是否发生改变，key改变的话调用deleteChild, 在returnFiber上标记删除
+   * 
+   * 如果key不变并且组件类型没发生变化，则拷贝一份fiber，否则删除
+   */
   function reconcileSingleElement(
     returnFiber: Fiber,
     currentFirstChild: Fiber | null,

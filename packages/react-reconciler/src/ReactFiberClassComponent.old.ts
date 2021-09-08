@@ -22,3 +22,5 @@ export function mountClassInstance(
 ): void {
   
 }
+
+export const emptyRefsObject = new React.Component().refs;

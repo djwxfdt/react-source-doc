@@ -41,6 +41,11 @@ export const enableUpdaterTracking = __PROFILE__;
 // Phase param passed to onRender callback differentiates between an "update" and a "cascading-update".
 export const enableProfilerNestedUpdatePhase = __PROFILE__;
 
+export const enableLazyElements = true;
+
+export const warnAboutStringRefs = false;
+
+
 /**
  * React 18的功能，开启后，react将有意的调用两次effects, mount -> unmount -> mount。用于检查effect是否有问题
  * 

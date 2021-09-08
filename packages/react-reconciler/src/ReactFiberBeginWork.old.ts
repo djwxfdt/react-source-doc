@@ -410,7 +410,11 @@ function finishClassComponent(
   return workInProgress.child;
 }
 
-
+/**
+ * 终于进入核心方法！！
+ * 
+ * 首次挂载的阶段会直接创建fiber， 后续更新阶段会进行diff算法
+ */
 export function reconcileChildren(
   current: Fiber | null,
   workInProgress: Fiber,

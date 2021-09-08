@@ -1,5 +1,7 @@
-import { REACT_FORWARD_REF_TYPE } from "../../shared/ReactSymbols";
+import { ReactElement } from "../../shared/ReactElementType";
+import { REACT_FORWARD_REF_TYPE, REACT_LAZY_TYPE, REACT_MEMO_TYPE } from "../../shared/ReactSymbols";
 import { Fiber } from "./ReactInternalTypes";
+import { ClassComponent, FunctionComponent, ForwardRef, MemoComponent, SimpleMemoComponent } from "./ReactWorkTags";
 
 export type Family = {
   current: any,
@@ -87,5 +89,86 @@ export function resolveForwardRefForHotReloading(type: any): any {
     return family.current;
   } else {
     return type;
+  }
+}
+
+export function isCompatibleFamilyForHotReloading(
+  fiber: Fiber,
+  element: ReactElement,
+): boolean {
+  if (__DEV__) {
+    if (resolveFamily === null) {
+      // Hot reloading is disabled.
+      return false;
+    }
+
+    const prevType = fiber.elementType;
+    const nextType = element.type;
+
+    // If we got here, we know types aren't === equal.
+    let needsCompareFamilies = false;
+
+    const $$typeofNextType =
+      typeof nextType === 'object' && nextType !== null
+        ? nextType.$$typeof
+        : null;
+
+    switch (fiber.tag) {
+      case ClassComponent: {
+        if (typeof nextType === 'function') {
+          needsCompareFamilies = true;
+        }
+        break;
+      }
+      case FunctionComponent: {
+        if (typeof nextType === 'function') {
+          needsCompareFamilies = true;
+        } else if ($$typeofNextType === REACT_LAZY_TYPE) {
+          // We don't know the inner type yet.
+          // We're going to assume that the lazy inner type is stable,
+          // and so it is sufficient to avoid reconciling it away.
+          // We're not going to unwrap or actually use the new lazy type.
+          needsCompareFamilies = true;
+        }
+        break;
+      }
+      case ForwardRef: {
+        if ($$typeofNextType === REACT_FORWARD_REF_TYPE) {
+          needsCompareFamilies = true;
+        } else if ($$typeofNextType === REACT_LAZY_TYPE) {
+          needsCompareFamilies = true;
+        }
+        break;
+      }
+      case MemoComponent:
+      case SimpleMemoComponent: {
+        if ($$typeofNextType === REACT_MEMO_TYPE) {
+          // TODO: if it was but can no longer be simple,
+          // we shouldn't set this.
+          needsCompareFamilies = true;
+        } else if ($$typeofNextType === REACT_LAZY_TYPE) {
+          needsCompareFamilies = true;
+        }
+        break;
+      }
+      default:
+        return false;
+    }
+
+    // Check if both types have a family and it's the same one.
+    if (needsCompareFamilies) {
+      // Note: memo() and forwardRef() we'll compare outer rather than inner type.
+      // This means both of them need to be registered to preserve state.
+      // If we unwrapped and compared the inner types for wrappers instead,
+      // then we would risk falsely saying two separate memo(Foo)
+      // calls are equivalent because they wrap the same Foo function.
+      const prevFamily = resolveFamily(prevType);
+      if (prevFamily !== undefined && prevFamily === resolveFamily(nextType)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    return false;
   }
 }

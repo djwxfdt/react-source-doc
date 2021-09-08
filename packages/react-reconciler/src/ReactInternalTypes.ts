@@ -30,6 +30,11 @@ import { UpdateQueue } from "./ReactUpdateQueue.old";
  | 'useCacheRefresh';
 
 
+ type RefHandleFunction = {
+  _stringRef?: string
+  (handle: mixed): void
+};
+
 export interface Wakeable {
   then(onFulfill: () => mixed, onReject: () => mixed): void | Wakeable;
 }
@@ -107,7 +112,7 @@ export type Fiber = {
 
   // The ref last used to attach this node.
   // I'll avoid adding an owner field for prod and model that as functions.
-  ref: null | (((handle: mixed) => void) & {_stringRef?: string}) | RefObject,
+  ref: null | (RefHandleFunction) | RefObject,
 
   // Input is the data coming into process this fiber. Arguments. Props.
   pendingProps: any, // This type will be more specific once we overload the tag.
