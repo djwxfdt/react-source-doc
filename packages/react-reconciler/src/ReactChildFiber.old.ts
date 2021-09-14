@@ -1,3 +1,4 @@
+/* eslint-disable no-case-declarations */
 
 import invariant from "../../shared/invariant";
 import isArray from "../../shared/isArray";
@@ -17,6 +18,54 @@ import { HostText, HostPortal, Fragment, ClassComponent } from "./ReactWorkTags"
 
 let didWarnAboutStringRefs:any = {};
 let ownerHasFunctionTypeWarning: any = {};
+
+let didWarnAboutMaps = false;
+let didWarnAboutGenerators = false;
+let ownerHasKeyUseWarning: any ={};
+let warnForMissingKey = (child: mixed, returnFiber: Fiber) => {};
+
+if (__DEV__) {
+  didWarnAboutMaps = false;
+  didWarnAboutGenerators = false;
+  didWarnAboutStringRefs = {};
+
+  /**
+   * Warn if there's no key explicitly set on dynamic arrays of children or
+   * object keys are not valid. This allows us to keep track of children between
+   * updates.
+   */
+  ownerHasKeyUseWarning = {};
+  ownerHasFunctionTypeWarning = {};
+
+  warnForMissingKey = (child: mixed, returnFiber: Fiber) => {
+    if (child === null || typeof child !== 'object') {
+      return;
+    }
+    if (!child._store || child._store.validated || child.key != null) {
+      return;
+    }
+    invariant(
+      typeof child._store === 'object',
+      'React Component in warnForMissingKey should have a _store. ' +
+        'This error is likely caused by a bug in React. Please file an issue.',
+    );
+    child._store.validated = true;
+
+    const componentName = getComponentNameFromFiber(returnFiber) || 'Component';
+
+    if (ownerHasKeyUseWarning[componentName]) {
+      return;
+    }
+    ownerHasKeyUseWarning[componentName] = true;
+
+    console.error(
+      'Each child in a list should have a unique ' +
+        '"key" prop. See https://reactjs.org/link/warning-keys for ' +
+        'more information.',
+    );
+  };
+}
+
 
 function warnOnFunctionType(returnFiber: Fiber) {
   if (__DEV__) {
@@ -176,6 +225,10 @@ function resolveLazy(lazyType: any) {
 // a compiler or we can do it manually. Helpers that don't need this branching
 
 // live outside of this function.
+/**
+ * 
+ * @param shouldTrackSideEffects 是否为更新操作
+ */
 function ChildReconciler(shouldTrackSideEffects: boolean) {
   function deleteChild(returnFiber: Fiber, childToDelete: Fiber): void {
     if (!shouldTrackSideEffects) {
