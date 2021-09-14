@@ -10,7 +10,7 @@
 createContainer相对比较简单
 updateContainer 过于复杂，估计有上万行代码，十分头痛
 
-### updateContainer
+## updateContainer
 
 1. requestEventTime (获取当前时间，如果当前并不处于react执行过程中，则用上一次更新的时间)
 
@@ -24,4 +24,8 @@ updateContainer 过于复杂，估计有上万行代码，十分头痛
 
 6. scheduleUpdateOnFiber （重点，在后面）
 
-### scheduleUpdateOnFiber （fiber调度，核心）
+## scheduleUpdateOnFiber （fiber调度，核心）
+
+### reconcileChildrenArray （传说中的diff算法）
+
+会执行三次循环

@@ -8,7 +8,7 @@ import ReactCurrentOwner from './ReactCurrentOwner';
 const ReactSharedInternals = {
   ReactCurrentDispatcher,
   ReactCurrentBatchConfig,
-  ReactCurrentActQueue: null as typeof ReactCurrentActQueue | null,
+  ReactCurrentActQueue: ReactCurrentActQueue,
   ReactCurrentOwner,
   // Used by renderers to avoid bundling object-assign twice in UMD bundles:
   // assign,
@@ -16,7 +16,7 @@ const ReactSharedInternals = {
 
 if (__DEV__) {
   // ReactSharedInternals.ReactDebugCurrentFrame = ReactDebugCurrentFrame;
-  ReactSharedInternals.ReactCurrentActQueue = ReactCurrentActQueue;
+  // ReactSharedInternals.ReactCurrentActQueue = ReactCurrentActQueue;
 }
 
 export default ReactSharedInternals;

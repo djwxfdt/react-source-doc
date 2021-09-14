@@ -1,20 +1,8 @@
-import { 
-  deferRenderPhaseUpdateToNextBatch,
-  enableDebugTracing,
-  enableProfilerCommitHooks,
-  enableProfilerNestedUpdatePhase,
-  enableProfilerNestedUpdateScheduledHook,
-  enableProfilerTimer,
-  enableSchedulingProfiler,
-  enableStrictEffects,
-  enableUpdaterTracking,
-  skipUnmountedBoundaries,
-  replayFailedUnitOfWorkWithInvokeGuardedCallback
-} from "../../shared/ReactFeatureFlags";
+import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCommitHooks, enableProfilerNestedUpdatePhase, enableProfilerNestedUpdateScheduledHook, enableProfilerTimer, enableSchedulingProfiler, enableStrictEffects, enableUpdaterTracking, skipUnmountedBoundaries } from "../../shared/ReactFeatureFlags";
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic } from "./ReactFiberFlags";
-import { cancelTimeout, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks, warnsIfNotActing } from "./ReactFiberHostConfig";
+import { getCurrentEventPriority, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
 import {
   addFiberToLanesMap,
   claimNextTransitionLane, Lane, Lanes, markRootUpdated, mergeLanes,
@@ -23,12 +11,10 @@ import {
   markStarvedLanesAsExpired,
   getNextLanes,
   getHighestPriorityLane,
-  includesSomeLane,
-  movePendingFibersToMemoized,
 } from "./ReactFiberLane.old";
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
-import { ConcurrentMode, NoMode, ProfileMode, StrictLegacyMode } from "./ReactTypeOfMode";
+import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
 import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, IndeterminateComponent, MemoComponent, Profiler, SimpleMemoComponent } from "./ReactWorkTags";
 import {
   now,
@@ -46,13 +32,13 @@ import { flushSyncCallbacks, flushSyncCallbacksOnlyInLegacyMode, scheduleLegacyS
 import { LegacyRoot } from "./ReactRootTags";
 import { PriorityLevel } from "../../scheduler/src/SchedulerPriorities";
 import ReactCurrentBatchConfig from "../../react/src/ReactCurrentBatchConfig";
-import { logPassiveEffectsStarted, logPassiveEffectsStopped, logRenderStarted } from "./DebugTracing";
-import { markPassiveEffectsStarted, markPassiveEffectsStopped, markRenderStarted } from "./SchedulingProfiler";
+import { logPassiveEffectsStarted, logPassiveEffectsStopped } from "./DebugTracing";
+import { markPassiveEffectsStarted, markPassiveEffectsStopped } from "./SchedulingProfiler";
 import { commitPassiveMountEffects, commitPassiveUnmountEffects, invokeLayoutEffectMountInDEV, invokeLayoutEffectUnmountInDEV, invokePassiveEffectMountInDEV, invokePassiveEffectUnmountInDEV } from "./ReactFiberCommitWork.old";
 import { createCapturedValue } from "./ReactCapturedValue";
 import { enqueueUpdate } from "./ReactUpdateQueue.old";
 import {createRootErrorUpdate, createClassErrorUpdate} from './ReactFiberThrow.old'
-import {getCommitTime, isCurrentUpdateNested, startProfilerTimer, stopProfilerTimerIfRunningAndRecordDelta, syncNestedUpdateFlag} from './ReactProfilerTimer.old'
+import {getCommitTime, isCurrentUpdateNested, syncNestedUpdateFlag} from './ReactProfilerTimer.old'
 
 import {
   isRendering as ReactCurrentDebugFiberIsRenderingInDEV,
@@ -66,29 +52,18 @@ import {
 } from './ReactFiberDevToolsHook.old';
 import invariant from "../../shared/invariant";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
-import { ContextOnlyDispatcher, FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV, resetHooksAfterThrow } from "./ReactFiberHooks.old";
+import { FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
 
 import {
   NoFlags as NoHookEffect,
   Passive as HookPassive,
 } from './ReactHookEffectTags';
-import { assignFiberPropertiesInDEV, createWorkInProgress } from "./ReactFiber.old";
-
-import {beginWork as originalBeginWork} from './ReactFiberBeginWork.old';
-import { resetContextDependencies } from "./ReactFiberNewContext.old";
-import { unwindInterruptedWork } from "./ReactFiberUnwindWork.old";
-import { clearCaughtError, hasCaughtError, invokeGuardedCallback } from "../../shared/ReactErrorUtils";
-import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
-import { enqueueInterleavedUpdates } from "./ReactFiberInterleavedUpdates.old";
 
 const {
   ReactCurrentActQueue,
-  ReactCurrentDispatcher,
-  ReactCurrentOwner
 } = ReactSharedInternals;
 
 type ExecutionContext = number;
-
 
 export const NoContext = /*             */ 0b0000;
 const BatchedContext = /*               */ 0b0001;
@@ -106,7 +81,7 @@ const RootSuspendedWithDelay = 4;
 const RootCompleted = 5;
 
 const NESTED_UPDATE_LIMIT = 50;
-let nestedUpdateCount = 0;
+let nestedUpdateCount: number = 0;
 let rootWithNestedUpdates: FiberRoot | null = null;
 
 /**
@@ -141,20 +116,11 @@ let pendingPassiveEffectsLanes: Lanes = NoLanes;
 let pendingPassiveProfilerEffects: Array<Fiber> = [];
 
 const NESTED_PASSIVE_UPDATE_LIMIT = 50;
-let nestedPassiveUpdateCount = 0;
+let nestedPassiveUpdateCount: number = 0;
 
-// A fatal error, if one is thrown
-let workInProgressRootFatalError: mixed = null;
-// "Included" lanes refer to lanes that were worked on during this render. It's
-// slightly different than `renderLanes` because `renderLanes` can change as you
-// enter and exit an Offscreen tree. This value is the combination of all render
-// lanes for the entire render phase.
-let workInProgressRootIncludedLanes: Lanes = NoLanes;
-// The work left over by components that were visited during this render. Only
-// includes unprocessed updates, not work in bailed out children.
-let workInProgressRootSkippedLanes: Lanes = NoLanes;
-// Lanes that were updated (in an interleaved event) during this render.
+// 在更新期间触发的更新，保存他们的优先级
 let workInProgressRootUpdatedLanes: Lanes = NoLanes;
+
 // Lanes that were pinged (in an interleaved event) during this render.
 let workInProgressRootPingedLanes: Lanes = NoLanes;
 
@@ -167,7 +133,6 @@ let firstUncaughtError = null;
 
 let legacyErrorBoundariesThatAlreadyFailed: Set<mixed> | null = null;
 
-export let subtreeRenderLanes: Lanes = NoLanes;
 
 const fakeActCallbackNode = {};
 function scheduleCallback(priorityLevel: PriorityLevel, callback: Function) {
@@ -208,7 +173,7 @@ function markRootSuspended(root: FiberRoot, suspendedLanes: Lanes) {
 
 // The absolute time for when we should start giving up on rendering
 // more and prefer CPU suspense heuristics instead.
-let workInProgressRootRenderTargetTime = Infinity;
+let workInProgressRootRenderTargetTime: number = Infinity;
 // How long a render is supposed to take before we start following CPU
 // suspense heuristics and opt out of rendering more content.
 const RENDER_TIMEOUT_MS = 500;
@@ -327,7 +292,7 @@ function markUpdateLaneFromFiberToRoot(
 /**
  * 判断当前属于渲染过程中的update，通常由于渲染过程中用户输入导致
  */
-export function isInterleavedUpdate(fiber: Fiber, lane: Lane): boolean {
+export function isInterleavedUpdate(fiber: Fiber, lane: Lane) {
   return (
     // TODO: Optimize slightly by comparing to root that fiber belongs to.
     // Requires some refactoring. Not a big deal though since it's rare for
@@ -705,8 +670,7 @@ function flushPassiveEffectsImpl() {
 
 
 /**
- * TODO
- * 执行useEffect?, render阶段应该不会执行这个才对
+ * 执行useEffect?
  */
 export function flushPassiveEffects(): boolean {
   // Returns whether passive effects were flushed.
@@ -732,292 +696,6 @@ export function flushPassiveEffects(): boolean {
   return false;
 }
 
-function pushDispatcher() {
-  const prevDispatcher = ReactCurrentDispatcher.current;
-  ReactCurrentDispatcher.current = ContextOnlyDispatcher;
-  if (prevDispatcher === null) {
-    // The React isomorphic package does not include a default dispatcher.
-    // Instead the first renderer will lazily attach one, in order to give
-    // nicer error messages.
-    return ContextOnlyDispatcher;
-  } else {
-    return prevDispatcher;
-  }
-}
-
-/**
- * 初始化render的入口，重设workInProgress和workInProgressRoot
- * 
- * 所以也就是说如果render过程中出现了更高优先级的任务，此时就会重制render过程，再次从fiberRoot开始
- */
-function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
-  /**
-   * 充值卡finish状态
-   */
-  root.finishedWork = null;
-  root.finishedLanes = NoLanes;
-
-  const timeoutHandle = root.timeoutHandle;
-  if (timeoutHandle !== noTimeout) {
-    // The root previous suspended and scheduled a timeout to commit a fallback
-    // state. Now that we have additional work, cancel the timeout.
-    root.timeoutHandle = noTimeout;
-    // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
-    cancelTimeout(timeoutHandle);
-  }
-
-  if (workInProgress !== null) {
-    let interruptedWork = workInProgress.return;
-    while (interruptedWork !== null) {
-      unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
-      interruptedWork = interruptedWork.return;
-    }
-  }
-  workInProgressRoot = root;
-  workInProgress = createWorkInProgress(root.current!, null);
-  workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
-  workInProgressRootExitStatus = RootIncomplete;
-  workInProgressRootFatalError = null;
-  workInProgressRootSkippedLanes = NoLanes;
-  workInProgressRootUpdatedLanes = NoLanes;
-  workInProgressRootPingedLanes = NoLanes;
-
-  enqueueInterleavedUpdates();
-
-  if (__DEV__) {
-    ReactStrictModeWarnings.discardPendingWarnings();
-  }
-}
-
-export function restorePendingUpdaters(root: FiberRoot, lanes: Lanes): void {
-  if (enableUpdaterTracking) {
-    if (isDevToolsPresent) {
-      const memoizedUpdaters = root.memoizedUpdaters!;
-      memoizedUpdaters.forEach(schedulingFiber => {
-        addFiberToLanesMap(root, schedulingFiber, lanes);
-      });
-
-      // This function intentionally does not clear memoized updaters.
-      // Those may still be relevant to the current commit
-      // and a future one (e.g. Suspense).
-    }
-  }
-}
-
-let beginWork: (current: Fiber, unitOfWork: Fiber, lanes: Lanes) => Fiber | null | undefined;
-if (__DEV__ && replayFailedUnitOfWorkWithInvokeGuardedCallback) {
-  const dummyFiber = null;
-  beginWork = (current, unitOfWork, lanes) => {
-    // If a component throws an error, we replay it again in a synchronously
-    // dispatched event, so that the debugger will treat it as an uncaught
-    // error See ReactErrorUtils for more information.
-
-    // Before entering the begin phase, copy the work-in-progress onto a dummy
-    // fiber. If beginWork throws, we'll use this to reset the state.
-    const originalWorkInProgressCopy = assignFiberPropertiesInDEV(
-      dummyFiber,
-      unitOfWork,
-    );
-    try {
-      return originalBeginWork(current, unitOfWork, lanes);
-    } catch (originalError) {
-      if (
-        originalError !== null &&
-        typeof originalError === 'object' &&
-        typeof originalError.then === 'function'
-      ) {
-        // Don't replay promises. Treat everything else like an error.
-        throw originalError;
-      }
-
-      // Keep this code in sync with handleError; any changes here must have
-      // corresponding changes there.
-      resetContextDependencies();
-      resetHooksAfterThrow();
-      // Don't reset current debug fiber, since we're about to work on the
-      // same fiber again.
-
-      // Unwind the failed stack frame
-      unwindInterruptedWork(unitOfWork, workInProgressRootRenderLanes);
-
-      // Restore the original properties of the fiber.
-      assignFiberPropertiesInDEV(unitOfWork, originalWorkInProgressCopy);
-
-      if (enableProfilerTimer && unitOfWork.mode & ProfileMode) {
-        // Reset the profiler timer.
-        startProfilerTimer(unitOfWork);
-      }
-
-      // Run beginWork again.
-      invokeGuardedCallback(
-        null,
-        originalBeginWork,
-        null,
-        current,
-        unitOfWork,
-        lanes,
-      );
-
-      if (hasCaughtError()) {
-        const replayError = clearCaughtError();
-        if (
-          typeof replayError === 'object' &&
-          replayError !== null &&
-          replayError._suppressLogging &&
-          typeof originalError === 'object' &&
-          originalError !== null &&
-          !originalError._suppressLogging
-        ) {
-          // If suppressed, let the flag carry over to the original error which is the one we'll rethrow.
-          originalError._suppressLogging = true;
-        }
-      }
-      // We always throw the original error in case the second render pass is not idempotent.
-      // This can happen if a memoized function or CommonJS module doesn't throw after first invokation.
-      throw originalError;
-    }
-  };
-} else {
-  beginWork = originalBeginWork;
-}
-
-function performUnitOfWork(unitOfWork: Fiber): void {
-  // The current, flushed, state of this fiber is the alternate. Ideally
-  // nothing should rely on this, but relying on it here means that we don't
-  // need an additional field on the work in progress.
-  /**
-   * 理一下思路，初次的时候unitOfWork是rootFiber的alternate。current才是当前正在处理的rootFiber
-   */
-  const current = unitOfWork.alternate!;
-  setCurrentDebugFiberInDEV(unitOfWork);
-
-  let next;
-  if (enableProfilerTimer && (unitOfWork.mode & ProfileMode) !== NoMode) {
-    startProfilerTimer(unitOfWork);
-    next = beginWork(current, unitOfWork, subtreeRenderLanes);
-    stopProfilerTimerIfRunningAndRecordDelta(unitOfWork, true);
-  } else {
-    next = beginWork(current, unitOfWork, subtreeRenderLanes);
-  }
-
-  resetCurrentDebugFiberInDEV();
-  unitOfWork.memoizedProps = unitOfWork.pendingProps;
-  if (next === null) {
-    // If this doesn't spawn new work, complete the current work.
-    completeUnitOfWork(unitOfWork);
-  } else {
-    workInProgress = next as Fiber;
-  }
-
-  ReactCurrentOwner.current = null;
-}
-
-function completeUnitOfWork(unitOfWork: Fiber): void {
-
-}
-
-function workLoopSync() {
-  // 初次渲染的时候，workInProgress就是当前rootFiber的alternate。也就是clone的rootFiber
-  while (workInProgress !== null) {
-    performUnitOfWork(workInProgress);
-  }
-}
-
-function handleError(root, thrownValue): void {
-}
-
-function renderRootSync(root: FiberRoot, lanes: Lanes) {
-  const prevExecutionContext = executionContext;
-  executionContext |= RenderContext;
-
-  /**
-   * 保存当前的dispacher
-   */
-  const prevDispatcher = pushDispatcher();
-
-  // If the root or lanes have changed, throw out the existing stack
-  // and prepare a fresh one. Otherwise we'll continue where we left off.
-  /**
-   * 如果根节点发生了变化，或者当前优先级发生变化，则重制调用栈
-   * 初次渲染的时候，workInProgressRoot为null, 肯定进入下面的逻辑
-   */
-  if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
-    if (enableUpdaterTracking) {
-      if (isDevToolsPresent) {
-        const memoizedUpdaters = root.memoizedUpdaters!;
-        if (memoizedUpdaters.size > 0) {
-          restorePendingUpdaters(root, workInProgressRootRenderLanes);
-          memoizedUpdaters.clear();
-        }
-
-        // At this point, move Fibers that scheduled the upcoming work from the Map to the Set.
-        // If we bailout on this work, we'll move them back (like above).
-        // It's important to move them now in case the work spawns more work at the same priority with different updaters.
-        // That way we can keep the current update and future updates separate.
-        movePendingFibersToMemoized(root, lanes);
-      }
-    }
-
-    prepareFreshStack(root, lanes);
-  }
-
-  /**
-   * 打日志
-   */
-  if (__DEV__) {
-    if (enableDebugTracing) {
-      logRenderStarted(lanes);
-    }
-  }
-
-  /**
-   * 用于检测渲染性能的
-   */
-  if (enableSchedulingProfiler) {
-    markRenderStarted(lanes);
-  }
-
-  do {
-    try {
-      workLoopSync();
-      break;
-    } catch (thrownValue) {
-      handleError(root, thrownValue);
-    }
-  // eslint-disable-next-line no-constant-condition
-  } while (true);
-  // resetContextDependencies();
-
-  // executionContext = prevExecutionContext;
-  // popDispatcher(prevDispatcher);
-
-  // if (workInProgress !== null) {
-  //   // This is a sync render, so we should have finished the whole tree.
-  //   invariant(
-  //     false,
-  //     'Cannot commit an incomplete root. This error is likely caused by a ' +
-  //       'bug in React. Please file an issue.',
-  //   );
-  // }
-
-  // if (__DEV__) {
-  //   if (enableDebugTracing) {
-  //     logRenderStopped();
-  //   }
-  // }
-
-  // if (enableSchedulingProfiler) {
-  //   markRenderStopped();
-  // }
-
-  // // Set this to null to indicate there's no in-progress render.
-  // workInProgressRoot = null;
-  // workInProgressRootRenderLanes = NoLanes;
-
-  // return workInProgressRootExitStatus;
-}
-
-
 /**
  * 同步任务的执行入口，这里不会进入任务调度
  */
@@ -1031,22 +709,8 @@ function performSyncWorkOnRoot(root: FiberRoot) {
     'Should not already be working.',
   );
 
-  /**
-   * 目前觉得render阶段，这个应该不会执行
-   */
   flushPassiveEffects();
 
-  /**
-   * 相当于这里再做一次校验，如果当前优先级队列不包含同步优先级就返回
-   */
-  let lanes = getNextLanes(root, NoLanes);
-  if (!includesSomeLane(lanes, SyncLane)) {
-    // There's no remaining sync work left.
-    ensureRootIsScheduled(root, now());
-    return null;
-  }
-
-  let exitStatus = renderRootSync(root, lanes);
 
   return null;
 }
@@ -1480,37 +1144,6 @@ function warnAboutUpdateOnUnmountedFiberInDEV(fiber: Fiber) {
           resetCurrentDebugFiberInDEV();
         }
       }
-    }
-  }
-}
-
-
-export function warnIfNotCurrentlyActingEffectsInDEV(fiber: Fiber): void {
-  if (__DEV__) {
-    if (
-      warnsIfNotActing === true &&
-      (fiber.mode & StrictLegacyMode) !== NoMode &&
-      ReactCurrentActQueue.current === null &&
-      // Our internal tests use a custom implementation of `act` that works by
-      // mocking the Scheduler package. Disable the `act` warning.
-      // TODO: Maybe the warning should be disabled by default, and then turned
-      // on at the testing frameworks layer? Instead of what we do now, which
-      // is check if a `jest` global is defined.
-      ReactCurrentActQueue.disableActWarning === false
-    ) {
-      console.error(
-        'An update to %s ran an effect, but was not wrapped in act(...).\n\n' +
-          'When testing, code that causes React state updates should be ' +
-          'wrapped into act(...):\n\n' +
-          'act(() => {\n' +
-          '  /* fire events that update state */\n' +
-          '});\n' +
-          '/* assert on the output */\n\n' +
-          "This ensures that you're testing the behavior the user would see " +
-          'in the browser.' +
-          ' Learn more at https://reactjs.org/link/wrap-tests-with-act',
-        getComponentNameFromFiber(fiber),
-      );
     }
   }
 }

@@ -210,6 +210,9 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     return null;
   }
 
+  /**
+   * 将原先fiber剩余的fiber，全部放到一个map中去，方便挑选
+   */
   function mapRemainingChildren(
     returnFiber: Fiber,
     currentFirstChild: Fiber,
@@ -240,6 +243,9 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     return clone;
   }
 
+  /**
+   * 添加fiber的flags Placement
+   */
   function placeChild(
     newFiber: Fiber,
     lastPlacedIndex: number,
@@ -296,6 +302,9 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     }
   }
 
+  /**
+   * current类型相同就clone，不同就创建
+   */
   function updateElement(
     returnFiber: Fiber,
     current: Fiber | null,
@@ -537,6 +546,9 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     return null;
   }
 
+  /**
+   * 根据map查找fiber。找到就clone，找不到就新建
+   */
   function updateFromMap(
     existingChildren: Map<string | number, Fiber>,
     returnFiber: Fiber,
@@ -689,7 +701,14 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
       }
     }
 
+    /**
+     * 真实的firstChild
+     */
     let resultingFirstChild: Fiber | null = null;
+
+    /**
+     * 上一个fiber，用于设置sibliling用的
+     */
     let previousNewFiber: Fiber | null = null;
 
     let oldFiber = currentFirstChild;
@@ -707,7 +726,7 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
       /**
        * 重要！！从这里可以看出，react在比较children的时候，会有两个指针分别从第一个child开始
        * 
-       * 如果新的child的key值和老的不一样，这时候新数组的指针向后移，老的不动。
+       * 如果新的child的key值和老的不一样，这时候新数组的指针向后移，老的不动, 并退出当前循环体
        */
       const newFiber = updateSlot(
         returnFiber,
@@ -747,12 +766,18 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
       oldFiber = nextOldFiber;
     }
 
+    /**
+     * 通过上一轮的循环发现新的children已经全部生成了，就把老的剩下的删掉。并退出当前函数。
+     */
     if (newIdx === newChildren.length) {
       // We've reached the end of the new children. We can delete the rest.
       deleteRemainingChildren(returnFiber, oldFiber);
       return resultingFirstChild;
     }
 
+    /**
+     * 如果老的fiber不够用了，也就是说新的列表比之前的要多，那就从当前位置开始直接创建fiber
+     */
     if (oldFiber === null) {
       // If we don't have any more existing children we can choose a fast path
       // since the rest will all be insertions.
