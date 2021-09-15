@@ -56,3 +56,5 @@ type React$Element<T> = any
  * 目前没找到定义的地方
  */
 type React$Node = any
+
+type jest = any

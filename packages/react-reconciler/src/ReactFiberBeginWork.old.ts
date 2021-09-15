@@ -675,7 +675,7 @@ export function beginWork(
   current: Fiber | null,
   workInProgress: Fiber,
   renderLanes: Lanes,
-): Fiber | null | undefined {
+): Fiber | null  {
   if (__DEV__) {
     if (workInProgress._debugNeedsRemount && current !== null) {
       // This will restart the begin phase with a new fiber.
@@ -920,6 +920,7 @@ export function beginWork(
       'React. Please file an issue.',
     workInProgress.tag,
   );
+  return null
 }
 
 

@@ -86,3 +86,13 @@ export function logRenderStarted(lanes: Lanes): void {
     }
   }
 }
+
+
+
+export function logRenderStopped(): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      groupEnd();
+    }
+  }
+}

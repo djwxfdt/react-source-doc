@@ -2,7 +2,7 @@ import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCo
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic } from "./ReactFiberFlags";
-import { getCurrentEventPriority, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
+import { cancelTimeout, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
 import {
   addFiberToLanesMap,
   claimNextTransitionLane, Lane, Lanes, markRootUpdated, mergeLanes,
@@ -11,9 +11,11 @@ import {
   markStarvedLanesAsExpired,
   getNextLanes,
   getHighestPriorityLane,
+  includesSomeLane,
+  movePendingFibersToMemoized,
 } from "./ReactFiberLane.old";
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
-import { Fiber, FiberRoot } from "./ReactInternalTypes";
+import { Dispatcher, Fiber, FiberRoot } from "./ReactInternalTypes";
 import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
 import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, IndeterminateComponent, MemoComponent, Profiler, SimpleMemoComponent } from "./ReactWorkTags";
 import {
@@ -32,13 +34,13 @@ import { flushSyncCallbacks, flushSyncCallbacksOnlyInLegacyMode, scheduleLegacyS
 import { LegacyRoot } from "./ReactRootTags";
 import { PriorityLevel } from "../../scheduler/src/SchedulerPriorities";
 import ReactCurrentBatchConfig from "../../react/src/ReactCurrentBatchConfig";
-import { logPassiveEffectsStarted, logPassiveEffectsStopped } from "./DebugTracing";
-import { markPassiveEffectsStarted, markPassiveEffectsStopped } from "./SchedulingProfiler";
+import { logPassiveEffectsStarted, logPassiveEffectsStopped, logRenderStarted, logRenderStopped } from "./DebugTracing";
+import { markPassiveEffectsStarted, markPassiveEffectsStopped, markRenderStarted, markRenderStopped } from "./SchedulingProfiler";
 import { commitPassiveMountEffects, commitPassiveUnmountEffects, invokeLayoutEffectMountInDEV, invokeLayoutEffectUnmountInDEV, invokePassiveEffectMountInDEV, invokePassiveEffectUnmountInDEV } from "./ReactFiberCommitWork.old";
 import { createCapturedValue } from "./ReactCapturedValue";
 import { enqueueUpdate } from "./ReactUpdateQueue.old";
-import {createRootErrorUpdate, createClassErrorUpdate} from './ReactFiberThrow.old'
-import {getCommitTime, isCurrentUpdateNested, syncNestedUpdateFlag} from './ReactProfilerTimer.old'
+import {createRootErrorUpdate, createClassErrorUpdate, throwException} from './ReactFiberThrow.old'
+import {getCommitTime, isCurrentUpdateNested, startProfilerTimer, stopProfilerTimerIfRunningAndRecordDelta, syncNestedUpdateFlag} from './ReactProfilerTimer.old'
 
 import {
   isRendering as ReactCurrentDebugFiberIsRenderingInDEV,
@@ -52,12 +54,20 @@ import {
 } from './ReactFiberDevToolsHook.old';
 import invariant from "../../shared/invariant";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
-import { FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV } from "./ReactFiberHooks.old";
+import { ContextOnlyDispatcher, FunctionComponentUpdateQueue, getIsUpdatingOpaqueValueInRenderPhaseInDEV, resetHooksAfterThrow } from "./ReactFiberHooks.old";
 
 import {
   NoFlags as NoHookEffect,
   Passive as HookPassive,
 } from './ReactHookEffectTags';
+import { resetContextDependencies } from "./ReactFiberNewContext.old";
+import ReactCurrentDispatcher from "../../react/src/ReactCurrentDispatcher";
+import { createWorkInProgress } from "./ReactFiber.old";
+import { enqueueInterleavedUpdates } from "./ReactFiberInterleavedUpdates.old";
+import { unwindInterruptedWork } from "./ReactFiberUnwindWork.old";
+import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
+import ReactCurrentOwner from "../../react/src/ReactCurrentOwner";
+import { beginWork } from "./ReactFiberBeginWork.old";
 
 const {
   ReactCurrentActQueue,
@@ -89,15 +99,23 @@ let rootWithNestedUpdates: FiberRoot | null = null;
  */
 let workInProgressRootExitStatus: RootExitStatus = RootIncomplete;
 
+let workInProgressRootFatalError: mixed = null;
+
 
 // Describes where we are in the React execution stack
 let executionContext: ExecutionContext = NoContext;
 // The root we're working on
 let workInProgressRoot: FiberRoot | null = null;
 // The fiber we're working on
-let workInProgress: Fiber | null = null;
+let workInProgress: Fiber | null  = null;
+
+export let subtreeRenderLanes: Lanes = NoLanes;
+
 // The lanes we're rendering
 let workInProgressRootRenderLanes: Lanes = NoLanes;
+let workInProgressRootSkippedLanes: Lanes = NoLanes;
+
+let workInProgressRootIncludedLanes: Lanes = NoLanes;
 
 let currentEventTransitionLane: Lanes = NoLanes;
 
@@ -134,8 +152,70 @@ let firstUncaughtError = null;
 let legacyErrorBoundariesThatAlreadyFailed: Set<mixed> | null = null;
 
 
+function handleError(root: FiberRoot, thrownValue: any): void {
+  do {
+    let erroredWork = workInProgress;
+    try {
+      // Reset module-level state that was set during the render phase.
+      resetContextDependencies();
+      resetHooksAfterThrow();
+      resetCurrentDebugFiberInDEV();
+      // TODO: I found and added this missing line while investigating a
+      // separate issue. Write a regression test using string refs.
+      ReactCurrentOwner.current = null;
+
+      if (erroredWork === null || erroredWork.return === null) {
+        // Expected to be working on a non-root fiber. This is a fatal error
+        // because there's no ancestor that can handle it; the root is
+        // supposed to capture all errors that weren't caught by an error
+        // boundary.
+        workInProgressRootExitStatus = RootFatalErrored;
+        workInProgressRootFatalError = thrownValue;
+        // Set `workInProgress` to null. This represents advancing to the next
+        // sibling, or the parent if there are no siblings. But since the root
+        // has no siblings nor a parent, we set it to null. Usually this is
+        // handled by `completeUnitOfWork` or `unwindWork`, but since we're
+        // intentionally not calling those, we need set it here.
+        // TODO: Consider calling `unwindWork` to pop the contexts.
+        workInProgress = null;
+        return;
+      }
+
+      if (enableProfilerTimer && erroredWork.mode & ProfileMode) {
+        // Record the time spent rendering before an error was thrown. This
+        // avoids inaccurate Profiler durations in the case of a
+        // suspended render.
+        stopProfilerTimerIfRunningAndRecordDelta(erroredWork, true);
+      }
+
+      throwException(
+        root,
+        erroredWork.return,
+        erroredWork,
+        thrownValue,
+        workInProgressRootRenderLanes,
+      );
+      completeUnitOfWork(erroredWork);
+    } catch (yetAnotherThrownValue) {
+      // Something in the return path also threw.
+      thrownValue = yetAnotherThrownValue;
+      if (workInProgress === erroredWork && erroredWork !== null) {
+        // If this boundary has already errored, then we had trouble processing
+        // the error. Bubble it to the next boundary.
+        erroredWork = erroredWork.return;
+        workInProgress = erroredWork;
+      } else {
+        erroredWork = workInProgress;
+      }
+      continue;
+    }
+    // Return to the normal work loop.
+    return;
+  } while (true);
+}
+
 const fakeActCallbackNode = {};
-function scheduleCallback(priorityLevel: PriorityLevel, callback: Function) {
+function scheduleCallback(priorityLevel: PriorityLevel, callback: () => any) {
   if (__DEV__) {
     // If we're currently inside an `act` scope, bypass Scheduler and push to
     // the `act` queue instead.
@@ -696,6 +776,189 @@ export function flushPassiveEffects(): boolean {
   return false;
 }
 
+
+function pushDispatcher() {
+  const prevDispatcher = ReactCurrentDispatcher.current;
+  ReactCurrentDispatcher.current = ContextOnlyDispatcher;
+  if (prevDispatcher === null) {
+    // The React isomorphic package does not include a default dispatcher.
+    // Instead the first renderer will lazily attach one, in order to give
+    // nicer error messages.
+    return ContextOnlyDispatcher;
+  } else {
+    return prevDispatcher;
+  }
+}
+
+function popDispatcher(prevDispatcher: Dispatcher) {
+  ReactCurrentDispatcher.current = prevDispatcher;
+}
+
+export function restorePendingUpdaters(root: FiberRoot, lanes: Lanes): void {
+  if (enableUpdaterTracking) {
+    if (isDevToolsPresent) {
+      const memoizedUpdaters = root.memoizedUpdaters!;
+      memoizedUpdaters.forEach(schedulingFiber => {
+        addFiberToLanesMap(root, schedulingFiber, lanes);
+      });
+
+      // This function intentionally does not clear memoized updaters.
+      // Those may still be relevant to the current commit
+      // and a future one (e.g. Suspense).
+    }
+  }
+}
+
+function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
+  root.finishedWork = null;
+  root.finishedLanes = NoLanes;
+
+  const timeoutHandle = root.timeoutHandle;
+  if (timeoutHandle !== noTimeout) {
+    // The root previous suspended and scheduled a timeout to commit a fallback
+    // state. Now that we have additional work, cancel the timeout.
+    root.timeoutHandle = noTimeout;
+    // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
+    cancelTimeout(timeoutHandle);
+  }
+
+  if (workInProgress !== null) {
+    let interruptedWork = workInProgress.return;
+    while (interruptedWork !== null) {
+      unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
+      interruptedWork = interruptedWork.return;
+    }
+  }
+  workInProgressRoot = root;
+  workInProgress = createWorkInProgress(root.current!, null);
+  workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
+  workInProgressRootExitStatus = RootIncomplete;
+  workInProgressRootFatalError = null;
+  workInProgressRootSkippedLanes = NoLanes;
+  workInProgressRootUpdatedLanes = NoLanes;
+  workInProgressRootPingedLanes = NoLanes;
+
+  enqueueInterleavedUpdates();
+
+  if (__DEV__) {
+    ReactStrictModeWarnings.discardPendingWarnings();
+  }
+}
+
+function performUnitOfWork(unitOfWork: Fiber): void {
+  // The current, flushed, state of this fiber is the alternate. Ideally
+  // nothing should rely on this, but relying on it here means that we don't
+  // need an additional field on the work in progress.
+  const current = unitOfWork.alternate;
+  setCurrentDebugFiberInDEV(unitOfWork);
+
+  let next;
+  if (enableProfilerTimer && (unitOfWork.mode & ProfileMode) !== NoMode) {
+    startProfilerTimer(unitOfWork);
+    next = beginWork(current, unitOfWork, subtreeRenderLanes);
+    stopProfilerTimerIfRunningAndRecordDelta(unitOfWork, true);
+  } else {
+    next = beginWork(current, unitOfWork, subtreeRenderLanes);
+  }
+
+  resetCurrentDebugFiberInDEV();
+  unitOfWork.memoizedProps = unitOfWork.pendingProps;
+  if (next === null) {
+    // If this doesn't spawn new work, complete the current work.
+    completeUnitOfWork(unitOfWork);
+  } else {
+    workInProgress = next;
+  }
+
+  ReactCurrentOwner.current = null;
+}
+
+function workLoopSync() {
+  // Already timed out, so perform work without checking if we need to yield.
+  while (workInProgress !== null) {
+    performUnitOfWork(workInProgress);
+  }
+}
+
+/**
+ * 同步模式下，从fiberRoot开始渲染
+ */
+function renderRootSync(root: FiberRoot, lanes: Lanes) {
+  const prevExecutionContext = executionContext;
+  executionContext |= RenderContext;
+  const prevDispatcher = pushDispatcher();
+
+  // If the root or lanes have changed, throw out the existing stack
+  // and prepare a fresh one. Otherwise we'll continue where we left off.
+  if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
+    if (enableUpdaterTracking) {
+      if (isDevToolsPresent) {
+        const memoizedUpdaters = root.memoizedUpdaters!;
+        if (memoizedUpdaters.size > 0) {
+          restorePendingUpdaters(root, workInProgressRootRenderLanes);
+          memoizedUpdaters.clear();
+        }
+
+        // At this point, move Fibers that scheduled the upcoming work from the Map to the Set.
+        // If we bailout on this work, we'll move them back (like above).
+        // It's important to move them now in case the work spawns more work at the same priority with different updaters.
+        // That way we can keep the current update and future updates separate.
+        movePendingFibersToMemoized(root, lanes);
+      }
+    }
+
+    prepareFreshStack(root, lanes);
+  }
+
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      logRenderStarted(lanes);
+    }
+  }
+
+  if (enableSchedulingProfiler) {
+    markRenderStarted(lanes);
+  }
+
+  do {
+    try {
+      workLoopSync();
+      break;
+    } catch (thrownValue) {
+      handleError(root, thrownValue);
+    }
+  } while (true);
+  resetContextDependencies();
+
+  executionContext = prevExecutionContext;
+  popDispatcher(prevDispatcher);
+
+  if (workInProgress !== null) {
+    // This is a sync render, so we should have finished the whole tree.
+    invariant(
+      false,
+      'Cannot commit an incomplete root. This error is likely caused by a ' +
+        'bug in React. Please file an issue.',
+    );
+  }
+
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      logRenderStopped();
+    }
+  }
+
+  if (enableSchedulingProfiler) {
+    markRenderStopped();
+  }
+
+  // Set this to null to indicate there's no in-progress render.
+  workInProgressRoot = null;
+  workInProgressRootRenderLanes = NoLanes;
+
+  return workInProgressRootExitStatus;
+}
+
 /**
  * 同步任务的执行入口，这里不会进入任务调度
  */
@@ -710,6 +973,18 @@ function performSyncWorkOnRoot(root: FiberRoot) {
   );
 
   flushPassiveEffects();
+
+  let lanes = getNextLanes(root, NoLanes);
+  if (!includesSomeLane(lanes, SyncLane)) {
+    // There's no remaining sync work left.
+    ensureRootIsScheduled(root, now());
+    return null;
+  }
+
+  /**
+   * 从这里进入调度循环
+   */
+  let exitStatus = renderRootSync(root, lanes);
 
 
   return null;

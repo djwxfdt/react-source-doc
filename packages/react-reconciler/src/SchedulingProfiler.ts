@@ -60,3 +60,11 @@ export function markComponentRenderStopped(): void {
     }
   }
 }
+
+export function markRenderStopped(): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      markAndClear('--render-stop');
+    }
+  }
+}
