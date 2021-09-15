@@ -22,8 +22,15 @@ export const Visibility = /*                   */ 0b00000000001000000000000;
 
 export const PassiveMask = Passive | ChildDeletion;
 
-export const ForceUpdateForLegacySuspense = /* */ 0b00000001000000000000000;
 
+export const HostEffectMask = /*               */ 0b00000000001111111111111;
+
+// These are not really side effects, but we still reuse this field.
+export const Incomplete = /*                   */ 0b00000000010000000000000;
+export const ShouldCapture = /*                */ 0b00000000100000000000000;
+export const ForceUpdateForLegacySuspense = /* */ 0b00000001000000000000000;
+export const DidPropagateContext = /*          */ 0b00000010000000000000000;
+export const NeedsPropagation = /*             */ 0b00000100000000000000000;
 
 
 export const MountLayoutDev = /*               */ 0b01000000000000000000000;
@@ -33,7 +40,6 @@ export const RefStatic = /*                    */ 0b00001000000000000000000;
 export const LayoutStatic = /*                 */ 0b00010000000000000000000;
 export const PassiveStatic = /*                */ 0b00100000000000000000000;
 
-export const NeedsPropagation = /*             */ 0b00000100000000000000000;
 
 
 export const StaticMask = LayoutStatic | PassiveStatic | RefStatic;

@@ -346,6 +346,8 @@ export function resetHooksAfterThrow(): void {
 
 /**
  * 调用组件方法获取render后的children，并对mount阶段和update阶段设置不同的dispacher
+ * 
+ * 首次渲染必定current必定是null, 为什么呢，因为是代码里面传的时候写死的
  */
 export function renderWithHooks<Props, SecondArg>(
   current: Fiber | null,

@@ -1329,7 +1329,7 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
 }
 
 /**
- * 无力吐槽的代码
+ * 无力吐槽的代码, mount方法和update基本是类似的。
  */
 export const reconcileChildFibers = ChildReconciler(true);
 export const mountChildFibers = ChildReconciler(false);

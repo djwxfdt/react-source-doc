@@ -1,7 +1,9 @@
-import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCommitHooks, enableProfilerNestedUpdatePhase, enableProfilerNestedUpdateScheduledHook, enableProfilerTimer, enableSchedulingProfiler, enableStrictEffects, enableUpdaterTracking, skipUnmountedBoundaries } from "../../shared/ReactFeatureFlags";
+/* eslint-disable no-case-declarations */
+/* eslint-disable no-constant-condition */
+import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCommitHooks, enableProfilerNestedUpdatePhase, enableProfilerNestedUpdateScheduledHook, enableProfilerTimer, enableSchedulingProfiler, enableStrictEffects, enableUpdaterTracking, replayFailedUnitOfWorkWithInvokeGuardedCallback, skipUnmountedBoundaries } from "../../shared/ReactFeatureFlags";
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
-import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic } from "./ReactFiberFlags";
+import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic, Incomplete, HostEffectMask } from "./ReactFiberFlags";
 import { cancelTimeout, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
 import {
   addFiberToLanesMap,
@@ -62,12 +64,14 @@ import {
 } from './ReactHookEffectTags';
 import { resetContextDependencies } from "./ReactFiberNewContext.old";
 import ReactCurrentDispatcher from "../../react/src/ReactCurrentDispatcher";
-import { createWorkInProgress } from "./ReactFiber.old";
+import { assignFiberPropertiesInDEV, createWorkInProgress } from "./ReactFiber.old";
 import { enqueueInterleavedUpdates } from "./ReactFiberInterleavedUpdates.old";
-import { unwindInterruptedWork } from "./ReactFiberUnwindWork.old";
+import { unwindInterruptedWork, unwindWork } from "./ReactFiberUnwindWork.old";
 import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
 import ReactCurrentOwner from "../../react/src/ReactCurrentOwner";
-import { beginWork } from "./ReactFiberBeginWork.old";
+import { beginWork as originalBeginWork } from "./ReactFiberBeginWork.old";
+import { invokeGuardedCallback, hasCaughtError, clearCaughtError } from "../../shared/ReactErrorUtils";
+import { completeWork } from "./ReactFiberCompleteWork.old";
 
 const {
   ReactCurrentActQueue,
@@ -91,7 +95,7 @@ const RootSuspendedWithDelay = 4;
 const RootCompleted = 5;
 
 const NESTED_UPDATE_LIMIT = 50;
-let nestedUpdateCount: number = 0;
+let nestedUpdateCount = 0;
 let rootWithNestedUpdates: FiberRoot | null = null;
 
 /**
@@ -134,7 +138,7 @@ let pendingPassiveEffectsLanes: Lanes = NoLanes;
 let pendingPassiveProfilerEffects: Array<Fiber> = [];
 
 const NESTED_PASSIVE_UPDATE_LIMIT = 50;
-let nestedPassiveUpdateCount: number = 0;
+let nestedPassiveUpdateCount = 0;
 
 // 在更新期间触发的更新，保存他们的优先级
 let workInProgressRootUpdatedLanes: Lanes = NoLanes;
@@ -151,6 +155,180 @@ let firstUncaughtError = null;
 
 let legacyErrorBoundariesThatAlreadyFailed: Set<mixed> | null = null;
 
+/**
+ * 在开发模式下会展示更友好的出错信息
+ */
+let beginWork: typeof originalBeginWork;
+if (__DEV__ && replayFailedUnitOfWorkWithInvokeGuardedCallback) {
+  const dummyFiber = null;
+  beginWork = (current, unitOfWork, lanes) => {
+    // If a component throws an error, we replay it again in a synchronously
+    // dispatched event, so that the debugger will treat it as an uncaught
+    // error See ReactErrorUtils for more information.
+
+    // Before entering the begin phase, copy the work-in-progress onto a dummy
+    // fiber. If beginWork throws, we'll use this to reset the state.
+    const originalWorkInProgressCopy = assignFiberPropertiesInDEV(
+      dummyFiber,
+      unitOfWork,
+    );
+    try {
+      return originalBeginWork(current, unitOfWork, lanes);
+    } catch (originalError: any) {
+      if (
+        originalError !== null &&
+        typeof originalError === 'object' &&
+        typeof originalError.then === 'function'
+      ) {
+        // Don't replay promises. Treat everything else like an error.
+        throw originalError;
+      }
+
+      // Keep this code in sync with handleError; any changes here must have
+      // corresponding changes there.
+      resetContextDependencies();
+      resetHooksAfterThrow();
+      // Don't reset current debug fiber, since we're about to work on the
+      // same fiber again.
+
+      // Unwind the failed stack frame
+      unwindInterruptedWork(unitOfWork, workInProgressRootRenderLanes);
+
+      // Restore the original properties of the fiber.
+      assignFiberPropertiesInDEV(unitOfWork, originalWorkInProgressCopy);
+
+      if (enableProfilerTimer && unitOfWork.mode & ProfileMode) {
+        // Reset the profiler timer.
+        startProfilerTimer(unitOfWork);
+      }
+
+      // Run beginWork again.
+      invokeGuardedCallback(
+        null,
+        originalBeginWork,
+        null,
+        current,
+        unitOfWork,
+        lanes,
+      );
+
+      if (hasCaughtError()) {
+        const replayError = clearCaughtError();
+        if (
+          typeof replayError === 'object' &&
+          replayError !== null &&
+          replayError._suppressLogging &&
+          typeof originalError === 'object' &&
+          originalError !== null &&
+          !originalError._suppressLogging
+        ) {
+          // If suppressed, let the flag carry over to the original error which is the one we'll rethrow.
+          originalError._suppressLogging = true;
+        }
+      }
+      // We always throw the original error in case the second render pass is not idempotent.
+      // This can happen if a memoized function or CommonJS module doesn't throw after first invokation.
+      throw originalError;
+    }
+  };
+} else {
+  beginWork = originalBeginWork;
+}
+
+
+function completeUnitOfWork(unitOfWork: Fiber): void {
+  // Attempt to complete the current unit of work, then move to the next
+  // sibling. If there are no more siblings, return to the parent fiber.
+  let completedWork: Fiber = unitOfWork;
+  do {
+    // The current, flushed, state of this fiber is the alternate. Ideally
+    // nothing should rely on this, but relying on it here means that we don't
+    // need an additional field on the work in progress.
+    const current = completedWork.alternate;
+    const returnFiber = completedWork.return;
+
+    // Check if the work completed or if something threw.
+    if ((completedWork.flags & Incomplete) === NoFlags) {
+      setCurrentDebugFiberInDEV(completedWork);
+      let next;
+      if (
+        !enableProfilerTimer ||
+        (completedWork.mode & ProfileMode) === NoMode
+      ) {
+        next = completeWork(current, completedWork, subtreeRenderLanes);
+      } else {
+        startProfilerTimer(completedWork);
+        next = completeWork(current, completedWork, subtreeRenderLanes);
+        // Update render duration assuming we didn't error.
+        stopProfilerTimerIfRunningAndRecordDelta(completedWork, false);
+      }
+      resetCurrentDebugFiberInDEV();
+
+      if (next !== null) {
+        // Completing this fiber spawned new work. Work on that next.
+        workInProgress = next;
+        return;
+      }
+    } else {
+      // This fiber did not complete because something threw. Pop values off
+      // the stack without entering the complete phase. If this is a boundary,
+      // capture values if possible.
+      const next = unwindWork(completedWork, subtreeRenderLanes);
+
+      // Because this fiber did not complete, don't reset its lanes.
+
+      if (next !== null) {
+        // If completing this work spawned new work, do that next. We'll come
+        // back here again.
+        // Since we're restarting, remove anything that is not a host effect
+        // from the effect tag.
+        next.flags &= HostEffectMask;
+        workInProgress = next;
+        return;
+      }
+
+      if (
+        enableProfilerTimer &&
+        (completedWork.mode & ProfileMode) !== NoMode
+      ) {
+        // Record the render duration for the fiber that errored.
+        stopProfilerTimerIfRunningAndRecordDelta(completedWork, false);
+
+        // Include the time spent working on failed children before continuing.
+        let actualDuration = completedWork.actualDuration!;
+        let child = completedWork.child;
+        while (child !== null) {
+          actualDuration += child.actualDuration!;
+          child = child.sibling;
+        }
+        completedWork.actualDuration = actualDuration;
+      }
+
+      if (returnFiber !== null) {
+        // Mark the parent fiber as incomplete and clear its subtree flags.
+        returnFiber.flags |= Incomplete;
+        returnFiber.subtreeFlags = NoFlags;
+        returnFiber.deletions = null;
+      }
+    }
+
+    const siblingFiber = completedWork.sibling;
+    if (siblingFiber !== null) {
+      // If there is more work to do in this returnFiber, do that next.
+      workInProgress = siblingFiber;
+      return;
+    }
+    // Otherwise, return to the parent
+    completedWork = returnFiber!;
+    // Update the next thing we're working on in case something throws.
+    workInProgress = completedWork;
+  } while (completedWork !== null);
+
+  // We've reached the root.
+  if (workInProgressRootExitStatus === RootIncomplete) {
+    workInProgressRootExitStatus = RootCompleted;
+  }
+}
 
 function handleError(root: FiberRoot, thrownValue: any): void {
   do {
@@ -253,7 +431,7 @@ function markRootSuspended(root: FiberRoot, suspendedLanes: Lanes) {
 
 // The absolute time for when we should start giving up on rendering
 // more and prefer CPU suspense heuristics instead.
-let workInProgressRootRenderTargetTime: number = Infinity;
+let workInProgressRootRenderTargetTime = Infinity;
 // How long a render is supposed to take before we start following CPU
 // suspense heuristics and opt out of rendering more content.
 const RENDER_TIMEOUT_MS = 500;
@@ -809,6 +987,9 @@ export function restorePendingUpdaters(root: FiberRoot, lanes: Lanes): void {
   }
 }
 
+/**
+ * 初始化各种临时变量，设置workInProgressRoot为当前fiberRoot, 设置workInProgress为rootFiber的alternate
+ */
 function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   root.finishedWork = null;
   root.finishedLanes = NoLanes;
@@ -849,6 +1030,9 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
   // need an additional field on the work in progress.
+  /**
+   * 这个current确实是当前的fiber，反而unitOfWork才是下一次的fiber
+   */
   const current = unitOfWork.alternate;
   setCurrentDebugFiberInDEV(unitOfWork);
 
@@ -890,6 +1074,9 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
 
   // If the root or lanes have changed, throw out the existing stack
   // and prepare a fresh one. Otherwise we'll continue where we left off.
+  /**
+   * 如果是初次渲染，workInProgressRoot 是为空的。所以必定进入条件语句
+   */
   if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
     if (enableUpdaterTracking) {
       if (isDevToolsPresent) {
@@ -907,6 +1094,9 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
       }
     }
 
+    /**
+     * 此时workInProgress为rootFiber的alternate, 初次为新创建的fiber
+     */
     prepareFreshStack(root, lanes);
   }
 

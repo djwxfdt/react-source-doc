@@ -414,6 +414,8 @@ function finishClassComponent(
  * 终于进入核心方法！！
  * 
  * 首次挂载的阶段会直接创建fiber， 后续更新阶段会进行diff算法
+ * 
+ * 首次加载current必定为null
  */
 export function reconcileChildren(
   current: Fiber | null,
@@ -453,7 +455,7 @@ export function reconcileChildren(
  * 
  * react一开始并不知道这是哪种，就是悬而未决。不过执行过一次之后，就知道了
  * 
- * 这个方法只是用于组件的mount操作，这里略显疑惑。
+ * 这个方法只是用于组件的mount操作， update不可能进入到这里。
  */
 function mountIndeterminateComponent(
   _current: Fiber | null,
