@@ -11,6 +11,9 @@ import { ProfileMode, NoMode, ConcurrentMode } from "./ReactTypeOfMode";
 import { IndeterminateComponent, LazyComponent, SimpleMemoComponent, FunctionComponent, ForwardRef, Fragment, Mode, Profiler, ContextConsumer, MemoComponent, ClassComponent, HostRoot, HostComponent, HostText, SuspenseComponent, HostPortal, ContextProvider, IncompleteClassComponent, SuspenseListComponent, ScopeComponent, OffscreenComponent, LegacyHiddenComponent, CacheComponent } from "./ReactWorkTags";
 import { now } from "./Scheduler";
 
+/**
+ * 设置当前fiber的childLanes和subtreeFlags
+ */
 function bubbleProperties(completedWork: Fiber) {
   const didBailout =
     completedWork.alternate !== null &&

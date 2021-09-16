@@ -236,6 +236,9 @@ if (__DEV__ && replayFailedUnitOfWorkWithInvokeGuardedCallback) {
 }
 
 
+/**
+ * 从下往上返回，设置一些childLanes，subtreeFlags等字段
+ */
 function completeUnitOfWork(unitOfWork: Fiber): void {
   // Attempt to complete the current unit of work, then move to the next
   // sibling. If there are no more siblings, return to the parent fiber.
@@ -1026,6 +1029,9 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   }
 }
 
+/**
+ * 从上往下beginWork，如果执行到没有child就返回执行completeUnitOfWork。交替往复
+ */
 function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
