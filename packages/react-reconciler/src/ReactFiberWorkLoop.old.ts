@@ -846,7 +846,12 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   root.callbackNode = newCallbackNode;
 }
 
-
+/**
+ * flushPassiveEffectsImpl主要做三件事：
+ * 1. 调用该useEffect在上一次render时的销毁函数
+ * 2. 调用该useEffect在本次render时的回调函数
+ * 3. 如果存在同步任务，不需要等待下次事件循环的宏任务，提前执行他
+ */
 function flushPassiveEffectsImpl() {
   if (rootWithPendingPassiveEffects === null) {
     return false;

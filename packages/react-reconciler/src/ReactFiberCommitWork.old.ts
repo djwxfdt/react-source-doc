@@ -30,7 +30,7 @@ function safelyCallComponentWillUnmount(
 ) {
   try {
     callComponentWillUnmountWithTimer(current, instance);
-  } catch (error) {
+  } catch (error: any) {
     reportUncaughtErrorInDEV(error);
     captureCommitPhaseError(current, nearestMountedAncestor, error);
   }
@@ -77,7 +77,7 @@ function safelyCallDestroy(
 ) {
   try {
     destroy();
-  } catch (error) {
+  } catch (error: any) {
     reportUncaughtErrorInDEV(error);
     captureCommitPhaseError(current, nearestMountedAncestor, error);
   }
@@ -134,7 +134,7 @@ function commitPassiveMountEffects_complete(
       setCurrentDebugFiberInDEV(fiber);
       try {
         commitPassiveMountOnFiber(root, fiber);
-      } catch (error) {
+      } catch (error: any) {
         reportUncaughtErrorInDEV(error);
         captureCommitPhaseError(fiber, fiber.return, error);
       }
@@ -566,7 +566,7 @@ export function invokeLayoutEffectUnmountInDEV(fiber: Fiber): void {
             fiber,
             fiber.return,
           );
-        } catch (error) {
+        } catch (error: any) {
           reportUncaughtErrorInDEV(error);
           captureCommitPhaseError(fiber, fiber.return, error);
         }
@@ -597,7 +597,7 @@ export function invokePassiveEffectUnmountInDEV(fiber: Fiber): void {
             fiber,
             fiber.return,
           );
-        } catch (error) {
+        } catch (error: any) {
           reportUncaughtErrorInDEV(error);
           captureCommitPhaseError(fiber, fiber.return, error);
         }
@@ -616,7 +616,7 @@ export function invokeLayoutEffectMountInDEV(fiber: Fiber): void {
       case SimpleMemoComponent: {
         try {
           commitHookEffectListMount(HookLayout | HookHasEffect, fiber);
-        } catch (error) {
+        } catch (error: any) {
           reportUncaughtErrorInDEV(error);
           captureCommitPhaseError(fiber, fiber.return, error);
         }
@@ -626,7 +626,7 @@ export function invokeLayoutEffectMountInDEV(fiber: Fiber): void {
         const instance = fiber.stateNode;
         try {
           instance.componentDidMount();
-        } catch (error) {
+        } catch (error: any) {
           reportUncaughtErrorInDEV(error);
           captureCommitPhaseError(fiber, fiber.return, error);
         }
@@ -646,7 +646,7 @@ export function invokePassiveEffectMountInDEV(fiber: Fiber): void {
       case SimpleMemoComponent: {
         try {
           commitHookEffectListMount(HookPassive | HookHasEffect, fiber);
-        } catch (error) {
+        } catch (error: any) {
           reportUncaughtErrorInDEV(error);
           captureCommitPhaseError(fiber, fiber.return, error);
         }
