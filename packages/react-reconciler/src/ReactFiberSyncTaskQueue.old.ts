@@ -20,8 +20,8 @@ import {ImmediatePriority, scheduleCallback} from './Scheduler';
  * 同步任务队列，scheduleSyncCallback会入队
  */
 let syncQueue: Array<SchedulerCallback> | null = null;
-let includesLegacySyncCallbacks: boolean = false;
-let isFlushingSyncQueue: boolean = false;
+let includesLegacySyncCallbacks = false;
+let isFlushingSyncQueue = false;
 
 /**
  * 将同步任务入队

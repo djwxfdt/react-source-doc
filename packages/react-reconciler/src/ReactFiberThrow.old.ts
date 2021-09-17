@@ -1,15 +1,15 @@
 import type {Fiber, Wakeable} from './ReactInternalTypes';
 import type {FiberRoot} from './ReactInternalTypes';
-import {includesSomeLane, Lane, Lanes, mergeLanes, NoTimestamp, SyncLane} from './ReactFiberLane.old';
+import {includesSomeLane, Lane, Lanes, mergeLanes, NoTimestamp, pickArbitraryLane, SyncLane} from './ReactFiberLane.old';
 import {CapturedValue, createCapturedValue} from './ReactCapturedValue';
-import {CaptureUpdate, createUpdate, enqueueUpdate, ForceUpdate, Update} from './ReactUpdateQueue.old';
+import {CaptureUpdate, createUpdate, enqueueCapturedUpdate, enqueueUpdate, ForceUpdate, Update} from './ReactUpdateQueue.old';
 import { isAlreadyFailedLegacyErrorBoundary, markLegacyErrorBoundaryAsFailed, onUncaughtError, restorePendingUpdaters } from './ReactFiberWorkLoop.old';
 import {logCapturedError} from './ReactFiberErrorLogger'
 import { markFailedErrorBoundaryForHotReloading } from './ReactFiberHotReloading.old';
 import getComponentNameFromFiber from './getComponentNameFromFiber';
 import { enableUpdaterTracking, enableLazyContextPropagation, enableDebugTracing, enableSchedulingProfiler } from '../../shared/ReactFeatureFlags';
 import { isDevToolsPresent } from './ReactFiberDevToolsHook.old';
-import { DidCapture, ForceUpdateForLegacySuspense, NoFlags } from './ReactFiberFlags';
+import { DidCapture, ForceUpdateForLegacySuspense, Incomplete, NoFlags, ShouldCapture } from './ReactFiberFlags';
 import { DebugTracingMode, ConcurrentMode, NoMode } from './ReactTypeOfMode';
 import { FunctionComponent, ForwardRef, SimpleMemoComponent, SuspenseComponent, ClassComponent, IncompleteClassComponent, HostRoot } from './ReactWorkTags';
 import { markComponentRenderStopped } from './SchedulingProfiler';
@@ -171,7 +171,7 @@ export function throwException(
 
     const hasInvisibleParentBoundary = hasSuspenseContext(
       suspenseStackCursor.current,
-      (InvisibleParentSuspenseContext: SuspenseContext),
+      (InvisibleParentSuspenseContext as SuspenseContext),
     );
 
     // Schedule the nearest Suspense to re-render the timed out view.
@@ -225,7 +225,7 @@ export function throwException(
             // its contents.
             const currentSuspenseBoundary = workInProgress.alternate;
             if (currentSuspenseBoundary === null) {
-              const offscreenFiber: Fiber = (workInProgress.child: any);
+              const offscreenFiber: Fiber = (workInProgress.child as any);
               const offscreenContainer = offscreenFiber.child;
               if (offscreenContainer !== null) {
                 const children = offscreenContainer.memoizedProps.children;
@@ -317,7 +317,7 @@ export function throwException(
       }
       // This boundary already captured during this render. Continue to the next
       // boundary.
-      workInProgress = workInProgress.return;
+      workInProgress = workInProgress.return as Fiber;
     } while (workInProgress !== null);
     // No boundary was found. Fallthrough to error mode.
     // TODO: Use invariant so the message is stripped in prod?

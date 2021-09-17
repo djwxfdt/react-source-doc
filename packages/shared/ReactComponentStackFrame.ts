@@ -1,3 +1,4 @@
+import { Dispatcher } from "../react-reconciler/src/ReactInternalTypes";
 import { LazyComponent } from "../react/src/ReactLazy";
 import { disableLogs, reenableLogs } from "./ConsolePatchingDev";
 import { Source } from "./ReactElementType";
@@ -20,7 +21,7 @@ import { REACT_SUSPENSE_TYPE, REACT_SUSPENSE_LIST_TYPE, REACT_FORWARD_REF_TYPE, 
        // Extract the VM specific prefix used by each line.
        try {
          throw Error();
-       } catch (x) {
+       } catch (x: any) {
          const match = x.stack.trim().match(/\n( *(at )?)/);
          prefix = (match && match[1]) || '';
        }
@@ -113,7 +114,7 @@ import { REACT_SUSPENSE_TYPE, REACT_SUSPENSE_LIST_TYPE, REACT_FORWARD_REF_TYPE, 
        }
        fn();
      }
-   } catch (sample) {
+   } catch (sample: any) {
      // This is inlined manually because closure doesn't do it for us.
      if (sample && control && typeof sample.stack === 'string') {
        // This extracts the first frame from the sample that isn't also in the control.
@@ -166,7 +167,7 @@ import { REACT_SUSPENSE_TYPE, REACT_SUSPENSE_LIST_TYPE, REACT_FORWARD_REF_TYPE, 
    } finally {
      reentry = false;
      if (__DEV__) {
-       ReactCurrentDispatcher.current = previousDispatcher;
+       ReactCurrentDispatcher.current = previousDispatcher as Dispatcher;
        reenableLogs();
      }
      Error.prepareStackTrace = previousPrepareStackTrace;

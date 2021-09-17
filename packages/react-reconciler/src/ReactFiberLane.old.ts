@@ -110,6 +110,15 @@ function pickArbitraryLaneIndex(lanes: Lanes) {
 }
 
 
+export function pickArbitraryLane(lanes: Lanes): Lane {
+  // This wrapper function gets inlined. Only exists so to communicate that it
+  // doesn't matter which bit is selected; you can pick any bit without
+  // affecting the algorithms where its used. Here I'm using
+  // getHighestPriorityLane because it requires the fewest operations.
+  return getHighestPriorityLane(lanes);
+}
+
+
 export function mergeLanes(a: Lanes | Lane, b: Lanes | Lane): Lanes {
   return a | b;
 }

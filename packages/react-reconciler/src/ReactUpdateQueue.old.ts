@@ -19,7 +19,7 @@ let currentlyProcessingQueue: any;
 /**
  * 只报警一次，防止死循环报错太多次
  */
-let didWarnUpdateInsideUpdate: boolean = false;
+let didWarnUpdateInsideUpdate = false;
 if (__DEV__) {
   didWarnUpdateInsideUpdate = false;
 }
@@ -176,3 +176,83 @@ export function entangleTransitions(root: FiberRoot, fiber: Fiber, lane: Lane) {
     markRootEntangled(root, newQueueLanes);
   }
 }
+
+export function enqueueCapturedUpdate<State>(
+  workInProgress: Fiber,
+  capturedUpdate: Update<State>,
+) {
+  // Captured updates are updates that are thrown by a child during the render
+  // phase. They should be discarded if the render is aborted. Therefore,
+  // we should only put them on the work-in-progress queue, not the current one.
+  let queue: UpdateQueue<State> = (workInProgress.updateQueue as any);
+
+  // Check if the work-in-progress queue is a clone.
+  const current = workInProgress.alternate;
+  if (current !== null) {
+    const currentQueue: UpdateQueue<State> = (current.updateQueue as any);
+    if (queue === currentQueue) {
+      // The work-in-progress queue is the same as current. This happens when
+      // we bail out on a parent fiber that then captures an error thrown by
+      // a child. Since we want to append the update only to the work-in
+      // -progress queue, we need to clone the updates. We usually clone during
+      // processUpdateQueue, but that didn't happen in this case because we
+      // skipped over the parent when we bailed out.
+      let newFirst = null;
+      let newLast = null;
+      const firstBaseUpdate = queue.firstBaseUpdate;
+      if (firstBaseUpdate !== null) {
+        // Loop through the updates and clone them.
+        let update = firstBaseUpdate;
+        do {
+          const clone: Update<State> = {
+            eventTime: update.eventTime,
+            lane: update.lane,
+
+            tag: update.tag,
+            payload: update.payload,
+            callback: update.callback,
+
+            next: null,
+          };
+          if (newLast === null) {
+            newFirst = newLast = clone;
+          } else {
+            newLast.next = clone;
+            newLast = clone;
+          }
+          update = update.next!;
+        } while (update !== null);
+
+        // Append the captured update the end of the cloned list.
+        if (newLast === null) {
+          newFirst = newLast = capturedUpdate;
+        } else {
+          newLast.next = capturedUpdate;
+          newLast = capturedUpdate;
+        }
+      } else {
+        // There are no base updates.
+        newFirst = newLast = capturedUpdate;
+      }
+      queue = {
+        baseState: currentQueue.baseState,
+        firstBaseUpdate: newFirst,
+        lastBaseUpdate: newLast,
+        shared: currentQueue.shared,
+        effects: currentQueue.effects,
+      };
+      workInProgress.updateQueue = queue;
+      return;
+    }
+  }
+
+  // Append the update to the end of the list.
+  const lastBaseUpdate = queue.lastBaseUpdate;
+  if (lastBaseUpdate === null) {
+    queue.firstBaseUpdate = capturedUpdate;
+  } else {
+    lastBaseUpdate.next = capturedUpdate;
+  }
+  queue.lastBaseUpdate = capturedUpdate;
+}
+

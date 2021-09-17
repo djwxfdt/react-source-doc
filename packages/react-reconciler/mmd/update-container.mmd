@@ -1,0 +1,7 @@
+graph TD;
+
+updateContainer --> scheduleUpdateOnFiber;
+
+scheduleUpdateOnFiber --> ensureRootIsScheduled;
+
+ensureRootIsScheduled --> performSyncWorkOnRoot;
