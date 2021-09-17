@@ -4,7 +4,7 @@ import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCo
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic, Incomplete, HostEffectMask } from "./ReactFiberFlags";
-import { cancelTimeout, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
+import { cancelTimeout, clearContainer, errorHydratingContainer, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
 import {
   addFiberToLanesMap,
   claimNextTransitionLane, Lane, Lanes, markRootUpdated, mergeLanes,
@@ -15,6 +15,7 @@ import {
   getHighestPriorityLane,
   includesSomeLane,
   movePendingFibersToMemoized,
+  getLanesToRetrySynchronouslyOnError,
 } from "./ReactFiberLane.old";
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
 import { Dispatcher, Fiber, FiberRoot } from "./ReactInternalTypes";
@@ -1187,6 +1188,49 @@ function performSyncWorkOnRoot(root: FiberRoot) {
    */
   let exitStatus = renderRootSync(root, lanes);
 
+  if (root.tag !== LegacyRoot && exitStatus === RootErrored) {
+    const prevExecutionContext = executionContext;
+    executionContext |= RetryAfterError;
+
+    // If an error occurred during hydration,
+    // discard server response and fall back to client side render.
+    if (root.hydrate) {
+      root.hydrate = false;
+      if (__DEV__) {
+        errorHydratingContainer(root.containerInfo);
+      }
+      clearContainer(root.containerInfo);
+    }
+
+    // If something threw an error, try rendering one more time. We'll render
+    // synchronously to block concurrent data mutations, and we'll includes
+    // all pending updates are included. If it still fails after the second
+    // attempt, we'll give up and commit the resulting tree.
+    const errorRetryLanes = getLanesToRetrySynchronouslyOnError(root);
+    if (errorRetryLanes !== NoLanes) {
+      lanes = errorRetryLanes;
+      exitStatus = renderRootSync(root, lanes);
+    }
+
+    executionContext = prevExecutionContext;
+  }
+
+  if (exitStatus === RootFatalErrored) {
+    const fatalError = workInProgressRootFatalError;
+    prepareFreshStack(root, NoLanes);
+    markRootSuspended(root, lanes);
+    ensureRootIsScheduled(root, now());
+    throw fatalError;
+  }
+
+   // We now have a consistent tree. Because this is a sync render, we
+  // will commit it even if something suspended.
+  const finishedWork: Fiber = (root.current!.alternate as any);
+  root.finishedWork = finishedWork;
+  root.finishedLanes = lanes;
+  // commitRoot(root);
+
+  ensureRootIsScheduled(root, now());
 
   return null;
 }

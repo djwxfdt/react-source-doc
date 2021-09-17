@@ -2,6 +2,7 @@ import { DefaultEventPriority } from "../../../react-reconciler/src/ReactEventPr
 import { FiberRoot } from "../../../react-reconciler/src/ReactInternalTypes";
 import { DOMEventName } from "../events/DOMEventNames";
 import { getEventPriority } from "../events/ReactDOMEventListener";
+import { DOCUMENT_NODE, ELEMENT_NODE } from "../shared/HTMLNodeType";
 
 export {detachDeletedInstance} from './ReactDOMComponentTree';
 
@@ -56,6 +57,26 @@ function handleErrorInNextTick(error: Error) {
   setTimeout(() => {
     throw error;
   });
+}
+
+export function errorHydratingContainer(parentContainer: Container): void {
+  if (__DEV__) {
+    console.error(
+      'An error occurred during hydration. The server HTML was replaced with client content in <%s>.',
+      parentContainer.nodeName.toLowerCase(),
+    );
+  }
+}
+
+export function clearContainer(container: Container): void {
+  if (container.nodeType === ELEMENT_NODE) {
+    ((container as any) as Element).textContent = '';
+  } else if (container.nodeType === DOCUMENT_NODE) {
+    const body = ((container as any) as Document).body;
+    if (body != null) {
+      body.textContent = '';
+    }
+  }
 }
 
 export const isPrimaryRenderer = true;

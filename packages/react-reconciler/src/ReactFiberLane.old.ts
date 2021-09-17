@@ -585,3 +585,14 @@ export function movePendingFibersToMemoized(root: FiberRoot, lanes: Lanes) {
     lanes &= ~lane;
   }
 }
+
+export function getLanesToRetrySynchronouslyOnError(root: FiberRoot): Lanes {
+  const everythingButOffscreen = root.pendingLanes & ~OffscreenLane;
+  if (everythingButOffscreen !== NoLanes) {
+    return everythingButOffscreen;
+  }
+  if (everythingButOffscreen & OffscreenLane) {
+    return OffscreenLane;
+  }
+  return NoLanes;
+}
