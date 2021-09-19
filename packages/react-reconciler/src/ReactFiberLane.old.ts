@@ -229,6 +229,9 @@ export function markRootSuspended(root: FiberRoot, suspendedLanes: Lanes) {
   }
 }
 
+/**
+ * 只有三种返回值，250， 5000和-1
+ */
 function computeExpirationTime(lane: Lane, currentTime: number) {
   switch (lane) {
     case SyncLane:
@@ -295,6 +298,9 @@ export function getHighestPriorityLane(lanes: Lanes): Lane {
   return lanes & -lanes;
 }
 
+/**
+ * 一般情况返回的是单条lane。只有TransitionLane和RetryLane是多条的
+ */
 function getHighestPriorityLanes(lanes: Lanes | Lane): Lanes {
   switch (getHighestPriorityLane(lanes)) {
     case SyncLane:
@@ -351,7 +357,11 @@ function getHighestPriorityLanes(lanes: Lanes | Lane): Lanes {
   }
 }
 
-
+/**
+ * 遍历fiberRoot的pendingLanes，检查过期的那个，然后放到expiredLanes中去
+ * 
+ * tip: 注意此处过期lane并没有从pendingLanes中移除
+ */
 export function markStarvedLanesAsExpired(
   root: FiberRoot,
   currentTime: number,
@@ -397,7 +407,9 @@ export function markStarvedLanesAsExpired(
 
 
 /**
- * 根据fiberRoot中的expiredLanes，suspendedLanes，pingedLanes确定出当前最紧急的lanes
+ * 根据fiberRoot中的pendingLanes，suspendedLanes，pingedLanes确定出当前最紧急的lanes
+ * 
+ * 疑问：expiredLanes跑哪去了？
  */
 export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
   // Early bailout if there's no pending work left.
@@ -408,6 +420,11 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
 
   let nextLanes = NoLanes;
 
+  /**
+   * 可先忽略
+   * pingedLanes和suspendedLanes是紧密关联在一起的
+   * pingedLanes是suspendedLanes的子集。
+   */
   const suspendedLanes = root.suspendedLanes;
   const pingedLanes = root.pingedLanes;
 

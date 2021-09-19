@@ -70,6 +70,10 @@ export function flushSyncCallbacks() {
       // queue is in the render or commit phases.
       // 也就是说执行callback的时候，当前的更新优先级为离散事件优先级
       setCurrentUpdatePriority(DiscreteEventPriority);
+
+      /**
+       * 循环执行同步队列中的任务，队列中可能出现多个么？？
+       */
       for (; i < queue.length; i++) {
         /**
          * 这个callback如果是render阶段应该就是performSyncWorkOnRoot

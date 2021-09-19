@@ -45,3 +45,16 @@ b. 如果处于浏览器的宏/微任务回调，就返回上次处于react执�
 
 执行流程如下：
 
+1. 调用markStarvedLanesAsExpired，从fiberRoot的pendingLanes中找到过期的那个，放到expiredLanes中去
+
+2. 调用getNextLanes，根据fiberRoot中的pendingLanes，suspendedLanes，pingedLanes确定出当前最紧急的lanes （suspendedLanes，pingedLanes和suspense有关，可以先忽略）
+
+3. 调用getHighestPriorityLane，根据上面的lanes获取最紧急的lane。（一般情况下此处lanes和lane的值相等）
+ 
+4. 调用scheduleLegacySyncCallback，将performSyncWorkOnRoot放入syncQueue的全局队列中
+
+5. 执行promise.resolve。在下个微任务执行flushSyncCallbacks   
+  a. flushSyncCallbacks: 从syncQueue中依次取出任务来执行（当前上下文，也就是会执行performSyncWorkOnRoot）
+
+
+## performSyncWorkOnRoot

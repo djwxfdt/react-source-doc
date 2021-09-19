@@ -709,6 +709,10 @@ export function scheduleUpdateOnFiber(
 /**
  * 这个方法实际上每次更新都会进来，从fiberRoot开始执行任务调度
  * 在这里会和调度模块进行交互，执行任务调度
+ * 
+ * 这里注意的是，调度是不会立即执行的，会在下一个微任务循环执行。所以如果多次调用了ensureRootIsScheduled，并且fiberRoot的优先级一样就会执行退出。
+ * 
+ * 那如果不一样才会继续执行
  */
 function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
@@ -718,6 +722,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   const existingCallbackNode = root.callbackNode;
 
   // 检查当前更新任务队列，将过期任务放入root.expiredLanes中，以便立即更新
+  // 疑惑的是，expiredLanes 后面并没有用到。。。
   markStarvedLanesAsExpired(root, currentTime);
 
   /**
