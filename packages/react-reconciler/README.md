@@ -12,20 +12,36 @@ updateContainer 过于复杂，估计有上万行代码，十分头痛
 
 ## updateContainer
 
-1. requestEventTime (获取当前时间，如果当前并不处于react执行过程中，则用上一次更新的时间)
+大概的执行流程如下：
 
-2. requestUpdateLane (取得当前次更新的优先级)
+1. 首先调用requestEventTime,有如下判断  
+a. 如果executionContext处于update阶段或者commit阶段，返回now()   
+b. 如果处于浏览器的宏/微任务回调，就返回上次处于react执行阶段时设置的时间
 
-3. getContextForSubtree (获取当前结构的上下文)
+2. 调用requestUpdateLane，LegacyMode下，返回的永远是SyncLane
 
-4. createUpdate （它基于时间戳和甬道创建一个update对象）
+3. 调用getContextForSubtree,初次渲染时返回的始终是空对象
 
-5. enqueueUpdate （将update对象存入fiber的sharedQueue.pending。并形成环式结构）
+4. 调用createUpdate，创建一个空的update对象
 
-6. scheduleUpdateOnFiber （重点，在后面）
+5. 调用enqueueUpdate，将update对象放入fiber.updateQueue.pending的环状链表中
 
-## scheduleUpdateOnFiber （fiber调度，核心）
+6. 调用scheduleUpdateOnFiber，执行调度
 
-### reconcileChildrenArray （传说中的diff算法）
+## scheduleUpdateOnFiber（针对需要更新的fiber）
 
-会执行三次循环
+执行流程如下：
+
+1. 调用markUpdateLaneFromFiberToRoot，此方法作用为:  
+  a. 执行mergeLanes来更新当前fiber和当前fiber的alternate的lanes   
+  b. 执行while循环，获取fiber的parent。同样执行mergeLanes来更新parent和parent的alternate的lanes  
+  c. 直到执行到parent为null，代表到头了，此时应该是rootFiber。返回rootFiber的stateNode，也就是fiberRoot
+
+2. 调用markRootUpdated,将当前lane放入fiberRoot的pendingLanes里面。（这里要注意的是，操作的是fiberRoot，不是rootFiber）
+
+3. 调用ensureRootIsScheduled
+
+## ensureRootIsScheduled （针对fiberRoot）
+
+执行流程如下：
+

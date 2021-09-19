@@ -5,3 +5,26 @@ updateContainer --> scheduleUpdateOnFiber;
 scheduleUpdateOnFiber --> ensureRootIsScheduled;
 
 ensureRootIsScheduled --> performSyncWorkOnRoot;
+
+performSyncWorkOnRoot --> renderRootSync;
+
+renderRootSync --> workLoopSync;
+
+workLoopSync --> performUnitOfWork;
+
+performUnitOfWork --> beginWork;
+
+beginWork --> mountIndeterminateComponent;
+
+mountIndeterminateComponent --> reconcileChildren;
+
+
+reconcileChildren --> mountChildFibers;
+
+reconcileChildren --> reconcileChildFibers;
+
+mountChildFibers --> reconcileChildFibers;
+
+reconcileChildFibers --> reconcileSingleElement;
+
+reconcileChildFibers --> reconcileChildrenArray;

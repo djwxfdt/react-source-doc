@@ -449,7 +449,7 @@ function resetRenderTimer() {
  */
 export function requestEventTime(): number {
   if ((executionContext & (RenderContext | CommitContext)) !== NoContext) {
-    // 当前处在react的执行过程之中，直接使用当前罪行时间
+    // 当前处在react的执行过程之中，直接使用当前执行时间
     return now();
   }
   // 当前不处于react执行过程中，比如setTimeout, 网络请求回调，原生浏览器事件回调之类
@@ -611,8 +611,14 @@ export function scheduleUpdateOnFiber(
   checkForNestedUpdates();
   warnAboutRenderPhaseUpdatesInDEV(fiber);
 
+  /**
+   * 当前root为fiberRoot
+   */
   const root = markUpdateLaneFromFiberToRoot(fiber, lane);
   if (root === null) {
+    /**
+     * 如果fiber被卸载了会变成游离状态，会进入到这里，
+     */
     warnAboutUpdateOnUnmountedFiberInDEV(fiber);
     return null;
   }
@@ -649,6 +655,7 @@ export function scheduleUpdateOnFiber(
   /**
    * 和isInterleavedUpdate差不多，就是说当前的更新是在render阶段触发的。
    * 还在更新中的时候，又来了一个更新，所以初次阅读的时候，这一块可以暂时跳过
+   * workInProgressRoot初次是为null
    */
   if (root === workInProgressRoot) {
     // Received an update to a tree that's in the middle of rendering. Mark
@@ -725,6 +732,8 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
    * TODO
    * 如果当前不存在渲染优先级，也就是说当前没有渲染任务，就退出。
    * 如果有任务实际上肯定有渲染优先级，那既然进来了，代表肯定有任务，为什么还可能没有渲染优先级呢，我也不知道，待仔细分析。
+   * 
+   * 后面分析可知：performSyncWorkOnRoot 执行完之后还会进来，确保没有更新任务了
    */
   if (nextLanes === NoLanes) {
     // Special case: There's nothing to work on.
@@ -1087,7 +1096,8 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
   // If the root or lanes have changed, throw out the existing stack
   // and prepare a fresh one. Otherwise we'll continue where we left off.
   /**
-   * 如果是初次渲染，workInProgressRoot 是为空的。所以必定进入条件语句
+   * 1. 如果是初次渲染，workInProgressRoot 是为空的。所以必定进入条件语句
+   * 2. renderRootSync每次执行完都会重新设置workInProgressRoot = null
    */
   if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
     if (enableUpdaterTracking) {
