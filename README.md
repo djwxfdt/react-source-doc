@@ -10,3 +10,12 @@
 | 任务调度（scheduler）| [已完成](./packages/scheduler/README.md) |
 | 协调（react-reconciler）| [已完成](./packages/react-reconciler/README.md) |
 | ReactDOM（react-dom） | 进行中 |
+
+
+### 如何阅读
+
+1. clone代码
+
+2. `yarn install`
+
+3. 进入`packages/react-dom/__tests__/render-test.ts`，打断点
