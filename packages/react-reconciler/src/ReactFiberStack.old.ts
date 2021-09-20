@@ -28,3 +28,28 @@ export function push<T>(cursor: StackCursor<T>, value: T, fiber: Fiber): void {
 
   cursor.current = value;
 }
+
+export function pop<T>(cursor: StackCursor<T>, fiber: Fiber): void {
+  if (index < 0) {
+    if (__DEV__) {
+      console.error('Unexpected pop.');
+    }
+    return;
+  }
+
+  if (__DEV__) {
+    if (fiber !== fiberStack[index]) {
+      console.error('Unexpected Fiber popped.');
+    }
+  }
+
+  cursor.current = valueStack[index];
+
+  valueStack[index] = null;
+
+  if (__DEV__) {
+    fiberStack[index] = null;
+  }
+
+  index--;
+}

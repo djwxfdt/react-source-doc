@@ -1,7 +1,8 @@
 import checkPropTypes from "../../shared/checkPropTypes";
+import invariant from "../../shared/invariant";
 import { disableLegacyContext } from "../../shared/ReactFeatureFlags";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
-import { createCursor, push, StackCursor } from "./ReactFiberStack.old";
+import { createCursor, pop, push, StackCursor } from "./ReactFiberStack.old";
 import { Fiber } from "./ReactInternalTypes";
 import { ClassComponent, HostRoot } from "./ReactWorkTags";
 
@@ -249,5 +250,43 @@ export function pushContextProvider(workInProgress: Fiber): boolean {
     );
 
     return true;
+  }
+}
+
+export function pushTopLevelContextObject(
+  fiber: Fiber,
+  context: Object,
+  didChange: boolean,
+): void {
+  if (disableLegacyContext) {
+    return;
+  } else {
+    invariant(
+      contextStackCursor.current === emptyContextObject,
+      'Unexpected context found on stack. ' +
+        'This error is likely caused by a bug in React. Please file an issue.',
+    );
+
+    push(contextStackCursor, context, fiber);
+    push(didPerformWorkStackCursor, didChange, fiber);
+  }
+}
+
+
+export function popContext(fiber: Fiber): void {
+  if (disableLegacyContext) {
+    return;
+  } else {
+    pop(didPerformWorkStackCursor, fiber);
+    pop(contextStackCursor, fiber);
+  }
+}
+
+export function popTopLevelContextObject(fiber: Fiber): void {
+  if (disableLegacyContext) {
+    return;
+  } else {
+    pop(didPerformWorkStackCursor, fiber);
+    pop(contextStackCursor, fiber);
   }
 }

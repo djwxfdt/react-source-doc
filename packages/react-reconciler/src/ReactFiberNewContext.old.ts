@@ -7,10 +7,20 @@ import { Lanes, includesSomeLane, NoLanes } from "./ReactFiberLane.old";
 import { markWorkInProgressReceivedUpdate } from "./ReactFiberBeginWork.old";
 import invariant from "../../shared/invariant";
 import { NeedsPropagation } from "./ReactFiberFlags";
+import { createCursor, push, StackCursor } from "./ReactFiberStack.old";
 
 let currentlyRenderingFiber: Fiber | null = null;
 let lastContextDependency: ContextDependency<mixed> | null = null;
 let lastFullyObservedContext: ReactContext<any> | null = null;
+
+const valueCursor: StackCursor<mixed> = createCursor(null);
+
+let rendererSigil: any;
+if (__DEV__) {
+  // Use this to detect multiple renderers using the same context
+  rendererSigil = {};
+}
+
 
 let isDisallowedContextReadInDEV = false;
 export function resetContextDependencies(): void {
@@ -131,4 +141,46 @@ export function readContext<T>(context: ReactContext<T>): T {
     }
   }
   return value;
+}
+
+export function pushProvider<T>(
+  providerFiber: Fiber,
+  context: ReactContext<T>,
+  nextValue: T,
+): void {
+  if (isPrimaryRenderer) {
+    push(valueCursor, context._currentValue, providerFiber);
+
+    context._currentValue = nextValue;
+    if (__DEV__) {
+      if (
+        context._currentRenderer !== undefined &&
+        context._currentRenderer !== null &&
+        context._currentRenderer !== rendererSigil
+      ) {
+        console.error(
+          'Detected multiple renderers concurrently rendering the ' +
+            'same context provider. This is currently unsupported.',
+        );
+      }
+      context._currentRenderer = rendererSigil;
+    }
+  } else {
+    push(valueCursor, context._currentValue2, providerFiber);
+
+    context._currentValue2 = nextValue;
+    if (__DEV__) {
+      if (
+        context._currentRenderer2 !== undefined &&
+        context._currentRenderer2 !== null &&
+        context._currentRenderer2 !== rendererSigil
+      ) {
+        console.error(
+          'Detected multiple renderers concurrently rendering the ' +
+            'same context provider. This is currently unsupported.',
+        );
+      }
+      context._currentRenderer2 = rendererSigil;
+    }
+  }
 }

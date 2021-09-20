@@ -897,13 +897,13 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
   function reconcileChildrenIterator(
     returnFiber: Fiber,
     currentFirstChild: Fiber | null,
-    newChildrenIterable: Iterable<*>,
+    newChildrenIterable: Iterable<any>,
     lanes: Lanes,
   ): Fiber | null {
     // This is the same implementation as reconcileChildrenArray(),
     // but using the iterator instead.
 
-    const iteratorFn = getIteratorFn(newChildrenIterable);
+    const iteratorFn = getIteratorFn(newChildrenIterable)!;
     invariant(
       typeof iteratorFn === 'function',
       'An object is not an iterable. This error is likely caused by a bug in ' +
@@ -916,7 +916,7 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
       if (
         typeof Symbol === 'function' &&
         // $FlowFixMe Flow doesn't know about toStringTag
-        newChildrenIterable[Symbol.toStringTag] === 'Generator'
+        (newChildrenIterable as any)[Symbol.toStringTag] === 'Generator'
       ) {
         if (!didWarnAboutGenerators) {
           console.error(
@@ -1119,6 +1119,10 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
     while (child !== null) {
       // TODO: If key === null and child.key === null, then this only applies to
       // the first item in the list.
+
+      /**
+       * 注意这里，如果没设置key的情况下，会进到if。这里必定会break。也就是只比较第一个
+       */
       if (child.key === key) {
         const elementType = element.type;
         if (elementType === REACT_FRAGMENT_TYPE) {
@@ -1333,3 +1337,33 @@ function ChildReconciler(shouldTrackSideEffects: boolean) {
  */
 export const reconcileChildFibers = ChildReconciler(true);
 export const mountChildFibers = ChildReconciler(false);
+
+
+export function cloneChildFibers(
+  current: Fiber | null,
+  workInProgress: Fiber,
+): void {
+  invariant(
+    current === null || workInProgress.child === current.child,
+    'Resuming work not yet implemented.',
+  );
+
+  if (workInProgress.child === null) {
+    return;
+  }
+
+  let currentChild = workInProgress.child;
+  let newChild = createWorkInProgress(currentChild, currentChild.pendingProps);
+  workInProgress.child = newChild;
+
+  newChild.return = workInProgress;
+  while (currentChild.sibling !== null) {
+    currentChild = currentChild.sibling;
+    newChild = newChild.sibling = createWorkInProgress(
+      currentChild,
+      currentChild.pendingProps,
+    );
+    newChild.return = workInProgress;
+  }
+  newChild.sibling = null;
+}

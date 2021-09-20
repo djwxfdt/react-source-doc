@@ -11,6 +11,12 @@ import { ProfileMode, NoMode, ConcurrentMode } from "./ReactTypeOfMode";
 import { IndeterminateComponent, LazyComponent, SimpleMemoComponent, FunctionComponent, ForwardRef, Fragment, Mode, Profiler, ContextConsumer, MemoComponent, ClassComponent, HostRoot, HostComponent, HostText, SuspenseComponent, HostPortal, ContextProvider, IncompleteClassComponent, SuspenseListComponent, ScopeComponent, OffscreenComponent, LegacyHiddenComponent, CacheComponent } from "./ReactWorkTags";
 import { now } from "./Scheduler";
 
+import {
+  isContextProvider as isLegacyContextProvider,
+  popContext as popLegacyContext,
+  popTopLevelContextObject as popTopLevelLegacyContextObject,
+} from './ReactFiberContext.old';
+
 /**
  * 设置当前fiber的childLanes和subtreeFlags
  */
@@ -154,14 +160,14 @@ export function completeWork(
     case MemoComponent:
       bubbleProperties(workInProgress);
       return null;
-    // case ClassComponent: {
-    //   const Component = workInProgress.type;
-    //   if (isLegacyContextProvider(Component)) {
-    //     popLegacyContext(workInProgress);
-    //   }
-    //   bubbleProperties(workInProgress);
-    //   return null;
-    // }
+    case ClassComponent: {
+      const Component = workInProgress.type;
+      if (isLegacyContextProvider(Component)) {
+        popLegacyContext(workInProgress);
+      }
+      bubbleProperties(workInProgress);
+      return null;
+    }
     // case HostRoot: {
     //   const fiberRoot = (workInProgress.stateNode: FiberRoot);
     //   if (enableCache) {

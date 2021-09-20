@@ -5,7 +5,7 @@ import { debugRenderPhaseSideEffectsForStrictMode, disableLegacyContext, disable
 import { createFiberFromTypeAndProps } from "./ReactFiber.old";
 import { ChildDeletion, DidCapture, ForceUpdateForLegacySuspense, NoFlags, PerformedWork, Placement } from "./ReactFiberFlags";
 import { includesSomeLane, Lanes, NoLanes } from "./ReactFiberLane.old";
-import { Fiber } from "./ReactInternalTypes";
+import { Fiber, FiberRoot } from "./ReactInternalTypes";
 import { IndeterminateComponent, LazyComponent, FunctionComponent, ClassComponent, HostRoot, HostComponent, HostText, SuspenseComponent, HostPortal, ForwardRef, Fragment, Mode, Profiler, ContextProvider, ContextConsumer, MemoComponent, SimpleMemoComponent, IncompleteClassComponent, SuspenseListComponent, ScopeComponent, OffscreenComponent, LegacyHiddenComponent, CacheComponent } from "./ReactWorkTags";
 
 import {
@@ -14,6 +14,7 @@ import {
   hasContextChanged as hasLegacyContextChanged,
   pushContextProvider as pushLegacyContextProvider,
   isContextProvider as isLegacyContextProvider,
+  pushTopLevelContextObject,
 } from './ReactFiberContext.old';
 import { checkIfContextChanged, prepareToReadContext } from "./ReactFiberNewContext.old";
 import { markComponentRenderStarted, markComponentRenderStopped } from "./SchedulingProfiler";
@@ -25,7 +26,11 @@ import { StrictLegacyMode } from "./ReactTypeOfMode";
 import { disableLogs, reenableLogs } from "../../shared/ConsolePatchingDev";
 import { initializeUpdateQueue } from "./ReactUpdateQueue.old";
 import { adoptClassInstance, mountClassInstance } from "./ReactFiberClassComponent.old";
-import { mountChildFibers, reconcileChildFibers } from "./ReactChildFiber.old";
+import { cloneChildFibers, mountChildFibers, reconcileChildFibers } from "./ReactChildFiber.old";
+import { pushHostContainer } from "./ReactFiberHostContext.old";
+import { pushCacheProvider, Cache, pushRootCachePool } from "./ReactFiberCacheComponent.old";
+import { resetHydrationState } from "./ReactFiberHydrationContext.old";
+import { markSkippedUpdateLanes } from "./ReactFiberWorkLoop.old";
 
 const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 
@@ -56,7 +61,7 @@ if (__DEV__) {
 
 
 /**
- * TODO
+ * 当前fiber不需要更新，但child可能需要。clone当前的fiber的child。并返回child
  */
 function bailoutOnAlreadyFinishedWork(
   current: Fiber | null,
@@ -73,29 +78,29 @@ function bailoutOnAlreadyFinishedWork(
   //   stopProfilerTimerIfRunning(workInProgress);
   // }
 
-  // markSkippedUpdateLanes(workInProgress.lanes);
+  markSkippedUpdateLanes(workInProgress.lanes);
 
-  // // Check if the children have any pending work.
-  // if (!includesSomeLane(renderLanes, workInProgress.childLanes)) {
-  //   // The children don't have any work either. We can skip them.
-  //   // TODO: Once we add back resuming, we should check if the children are
-  //   // a work-in-progress set. If so, we need to transfer their effects.
+  // Check if the children have any pending work.
+  if (!includesSomeLane(renderLanes, workInProgress.childLanes)) {
+    // The children don't have any work either. We can skip them.
+    // TODO: Once we add back resuming, we should check if the children are
+    // a work-in-progress set. If so, we need to transfer their effects.
 
-  //   if (enableLazyContextPropagation && current !== null) {
-  //     // Before bailing out, check if there are any context changes in
-  //     // the children.
-  //     lazilyPropagateParentContextChanges(current, workInProgress, renderLanes);
-  //     if (!includesSomeLane(renderLanes, workInProgress.childLanes)) {
-  //       return null;
-  //     }
-  //   } else {
-  //     return null;
-  //   }
-  // }
+    if (enableLazyContextPropagation && current !== null) {
+      // Before bailing out, check if there are any context changes in
+      // the children.
+      // lazilyPropagateParentContextChanges(current, workInProgress, renderLanes);
+      if (!includesSomeLane(renderLanes, workInProgress.childLanes)) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
 
   // // This fiber doesn't have work, but its subtree does. Clone the child
   // // fibers and continue.
-  // cloneChildFibers(current, workInProgress);
+  cloneChildFibers(current, workInProgress);
   return workInProgress.child;
 }
 
@@ -189,6 +194,24 @@ function checkScheduledUpdateOrContext(
   return false;
 }
 
+function pushHostRootContext(workInProgress: Fiber) {
+  const root = (workInProgress.stateNode as  FiberRoot);
+  if (root.pendingContext) {
+    pushTopLevelContextObject(
+      workInProgress,
+      root.pendingContext,
+      root.pendingContext !== root.context,
+    );
+  } else if (root.context) {
+    // Should always be set
+    pushTopLevelContextObject(workInProgress, root.context, false);
+  }
+  pushHostContainer(workInProgress, root.containerInfo);
+}
+
+/**
+ * 当前fiber节点不用更新，返回child节点
+ */
 function attemptEarlyBailoutIfNoScheduledUpdate(
   current: Fiber,
   workInProgress: Fiber,
@@ -197,17 +220,17 @@ function attemptEarlyBailoutIfNoScheduledUpdate(
   // This fiber does not have any pending work. Bailout without entering
   // the begin phase. There's still some bookkeeping we that needs to be done
   // in this optimized path, mostly pushing stuff onto the stack.
-  // switch (workInProgress.tag) {
-  //   case HostRoot:
-  //     pushHostRootContext(workInProgress);
-  //     if (enableCache) {
-  //       const root: FiberRoot = workInProgress.stateNode;
-  //       const cache: Cache = current.memoizedState.cache;
-  //       pushCacheProvider(workInProgress, cache);
-  //       pushRootCachePool(root);
-  //     }
-  //     resetHydrationState();
-  //     break;
+  switch (workInProgress.tag) {
+    case HostRoot:
+      pushHostRootContext(workInProgress);
+      if (enableCache) {
+        const root: FiberRoot = workInProgress.stateNode;
+        const cache: Cache = current.memoizedState.cache;
+        pushCacheProvider(workInProgress, cache);
+        pushRootCachePool(root);
+      }
+      resetHydrationState();
+      break;
   //   case HostComponent:
   //     pushHostContext(workInProgress);
   //     break;
@@ -394,7 +417,7 @@ function attemptEarlyBailoutIfNoScheduledUpdate(
   //     }
   //     break;
   //   }
-  // }
+  }
   return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
 }
 
@@ -572,6 +595,9 @@ function mountIndeterminateComponent(
   }
 
 
+  /**
+   * 这里是判断是不是有人是深井冰，写了类似{render: () => {}}这样的组件
+   */
   if (
     // Run these checks in production only if the flag is off.
     // Eventually we'll delete this branch altogether.

@@ -1137,6 +1137,9 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
     markRenderStarted(lanes);
   }
 
+  /**
+   * 这里搞个try catch也是有意思，如果catch了，会从下一个workingProgress继续执行
+   */
   do {
     try {
       workLoopSync();
@@ -1681,4 +1684,11 @@ function warnAboutUpdateOnUnmountedFiberInDEV(fiber: Fiber) {
       }
     }
   }
+}
+
+export function markSkippedUpdateLanes(lane: Lane | Lanes): void {
+  workInProgressRootSkippedLanes = mergeLanes(
+    lane,
+    workInProgressRootSkippedLanes,
+  );
 }
