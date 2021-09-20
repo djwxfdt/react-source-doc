@@ -1,4 +1,9 @@
-import { Instance } from "./ReactDOMHostConfig";
+import { Fiber } from "../../../react-reconciler/src/ReactInternalTypes";
+import { HostComponent, HostText, SuspenseComponent, HostRoot } from "../../../react-reconciler/src/ReactWorkTags";
+import { Container, Instance } from "./ReactDOMHostConfig";
+
+let didWarnInvalidHydration = false;
+
 
 const randomKey = Math.random()
   .toString(36)
@@ -18,4 +23,73 @@ export function detachDeletedInstance(node: Instance): void {
   delete (node as any)[internalEventHandlersKey];
   delete (node as any)[internalEventHandlerListenersKey];
   delete (node as any)[internalEventHandlesSetKey];
+}
+
+export function isContainerMarkedAsRoot(node: Container): boolean {
+  return !!(node as any)[internalContainerInstanceKey];
+}
+
+
+export function getInstanceFromNode(node: Node): Fiber | null {
+  const inst =
+    (node as any)[internalInstanceKey] ||
+    (node as any)[internalContainerInstanceKey];
+  if (inst) {
+    if (
+      inst.tag === HostComponent ||
+      inst.tag === HostText ||
+      inst.tag === SuspenseComponent ||
+      inst.tag === HostRoot
+    ) {
+      return inst;
+    } else {
+      return null;
+    }
+  }
+  return null;
+}
+export function markContainerAsRoot(hostRoot: Fiber, node: Container): void {
+  (node as any)[internalContainerInstanceKey] = hostRoot;
+}
+
+export function warnForInsertedHydratedElement(
+  parentNode: Element | Document,
+  tag: string,
+  props: Object,
+) {
+  if (__DEV__) {
+    if (didWarnInvalidHydration) {
+      return;
+    }
+    didWarnInvalidHydration = true;
+    console.error(
+      'Expected server HTML to contain a matching <%s> in <%s>.',
+      tag,
+      parentNode.nodeName.toLowerCase(),
+    );
+  }
+}
+
+export function warnForInsertedHydratedText(
+  parentNode: Element | Document,
+  text: string,
+) {
+  if (__DEV__) {
+    if (text === '') {
+      // We expect to insert empty text nodes since they're not represented in
+      // the HTML.
+      // TODO: Remove this special case if we can just avoid inserting empty
+      // text nodes.
+      return;
+    }
+    if (didWarnInvalidHydration) {
+      return;
+    }
+    didWarnInvalidHydration = true;
+    console.error(
+      'Expected server HTML to contain a matching text node for "%s" in <%s>.',
+      text,
+      parentNode.nodeName.toLowerCase(),
+    );
+  }
 }

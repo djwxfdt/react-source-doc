@@ -1,4 +1,5 @@
-import { Container, getRootHostContext, HostContext } from "./ReactFiberHostConfig";
+import invariant from "../../shared/invariant";
+import { Container, getChildHostContext, getRootHostContext, HostContext } from "./ReactFiberHostConfig";
 import { createCursor, push, StackCursor, pop } from "./ReactFiberStack.old";
 import { Fiber } from "./ReactInternalTypes";
 
@@ -35,4 +36,42 @@ export function pushHostContainer(fiber: Fiber, nextRootInstance: Container) {
   // Now that we know this function doesn't throw, replace it.
   pop(contextStackCursor, fiber);
   push(contextStackCursor, nextRootContext, fiber);
+}
+
+function requiredContext<Value>(c: Value | NoContextT): Value {
+  invariant(
+    c !== NO_CONTEXT,
+    'Expected host context to exist. This error is likely caused by a bug ' +
+      'in React. Please file an issue.',
+  );
+  return (c as any);
+}
+
+export function pushHostContext(fiber: Fiber): void {
+  const rootInstance: Container = requiredContext(
+    rootInstanceStackCursor.current,
+  );
+  const context: HostContext = requiredContext(contextStackCursor.current);
+  const nextContext = getChildHostContext(context, fiber.type, rootInstance);
+
+  // Don't push this Fiber's context unless it's unique.
+  if (context === nextContext) {
+    return;
+  }
+
+  // Track the context and the Fiber that provided it.
+  // This enables us to pop only Fibers that provide unique contexts.
+  push(contextFiberStackCursor, fiber, fiber);
+  push(contextStackCursor, nextContext, fiber);
+}
+
+export function popHostContext(fiber: Fiber): void {
+  // Do not pop unless this Fiber provided the current context.
+  // pushHostContext() only pushes Fibers that provide unique contexts.
+  if (contextFiberStackCursor.current !== fiber) {
+    return;
+  }
+
+  pop(contextStackCursor, fiber);
+  pop(contextFiberStackCursor, fiber);
 }

@@ -181,7 +181,7 @@ function defineRefPropWarningGetter(props: any, displayName: any) {
   });
 }
 
-export function createElement(type: any, config: any, children: any) {
+export function createElement(type: any, config?: any, children?: any) {
   let propName;
 
   // Reserved names are extracted

@@ -1784,3 +1784,40 @@ export function warnIfNotCurrentlyActingEffectsInDEV(fiber: Fiber): void {
     }
   }
 }
+
+export function flushSyncWithoutWarningIfAlreadyRendering(fn: Function) {
+  // In legacy mode, we flush pending passive effects at the beginning of the
+  // next event, not at the end of the previous one.
+  if (
+    rootWithPendingPassiveEffects !== null &&
+    rootWithPendingPassiveEffects.tag === LegacyRoot &&
+    (executionContext & (RenderContext | CommitContext)) === NoContext
+  ) {
+    flushPassiveEffects();
+  }
+
+  const prevExecutionContext = executionContext;
+  executionContext |= BatchedContext;
+
+  const prevTransition = ReactCurrentBatchConfig.transition;
+  const previousPriority = getCurrentUpdatePriority();
+  try {
+    ReactCurrentBatchConfig.transition = 0;
+    setCurrentUpdatePriority(DiscreteEventPriority);
+    if (fn) {
+      return fn();
+    } else {
+      return undefined;
+    }
+  } finally {
+    setCurrentUpdatePriority(previousPriority);
+    ReactCurrentBatchConfig.transition = prevTransition;
+    executionContext = prevExecutionContext;
+    // Flush the immediate callbacks that were scheduled during this batch.
+    // Note that this will happen even if batchedUpdates is higher up
+    // the stack.
+    if ((executionContext & (RenderContext | CommitContext)) === NoContext) {
+      flushSyncCallbacks();
+    }
+  }
+}

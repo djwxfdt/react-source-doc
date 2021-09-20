@@ -2,7 +2,7 @@ import { enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
 import { ReactNodeList } from "../../shared/ReactTypes";
 import { emptyContextObject, findCurrentUnmaskedContext, isContextProvider as isLegacyContextProvider, processChildContext } from "./ReactFiberContext.old";
 import { onScheduleRoot } from "./ReactFiberDevToolsHook.old";
-import { Container } from "./ReactFiberHostConfig";
+import { Container, getPublicInstance, PublicInstance } from "./ReactFiberHostConfig";
 import { Lane } from "./ReactFiberLane.old";
 import { createFiberRoot } from "./ReactFiberRoot.old";
 import { requestEventTime, requestUpdateLane, scheduleUpdateOnFiber } from "./ReactFiberWorkLoop.old";
@@ -10,7 +10,7 @@ import { Fiber, FiberRoot, SuspenseHydrationCallbacks } from "./ReactInternalTyp
 import { RootTag } from "./ReactRootTags";
 import { markRenderScheduled } from "./SchedulingProfiler";
 import { get as getInstance } from '../../shared/ReactInstanceMap'
-import { ClassComponent } from "./ReactWorkTags";
+import { ClassComponent, HostComponent } from "./ReactWorkTags";
 import { createUpdate, enqueueUpdate, entangleTransitions } from "./ReactUpdateQueue.old";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import {
@@ -19,9 +19,12 @@ import {
   resetCurrentFiber as resetCurrentDebugFiberInDEV,
   setCurrentFiber as setCurrentDebugFiberInDEV,
 } from './ReactCurrentFiber';
+import { findCurrentHostFiberWithNoPortals } from "./ReactFiberTreeReflection";
 
 let didWarnAboutNestedUpdates = false;
 let didWarnAboutFindNodeInStrictMode;
+
+export {flushSyncWithoutWarningIfAlreadyRendering} from './ReactFiberWorkLoop.old'
 
 if (__DEV__) {
   didWarnAboutNestedUpdates = false;
@@ -34,7 +37,7 @@ type OpaqueRoot = FiberRoot;
  * 获取子树的上下文context，这个上下文到底是个啥，目前无法确定
  */
 function getContextForSubtree(
-  parentComponent?: React$Component<any, any>,
+  parentComponent?: React$Component<any, any> | null,
 ): Object {
   if (!parentComponent) {
     return emptyContextObject;
@@ -84,7 +87,7 @@ export function createContainer(
 export function updateContainer(
   element: ReactNodeList,
   container: OpaqueRoot,
-  parentComponent?: React$Component<any, any>,
+  parentComponent?: React$Component<any, any> | null,
   callback?: Function | null,
 ): Lane {
   if (__DEV__) {
@@ -160,4 +163,29 @@ export function updateContainer(
   }
 
   return lane;
+}
+
+export function findHostInstanceWithNoPortals(
+  fiber: Fiber,
+): PublicInstance | null {
+  const hostFiber = findCurrentHostFiberWithNoPortals(fiber);
+  if (hostFiber === null) {
+    return null;
+  }
+  return hostFiber.stateNode;
+}
+
+export function getPublicRootInstance(
+  container: OpaqueRoot,
+): React$Component<any, any> | PublicInstance | null {
+  const containerFiber = container.current!;
+  if (!containerFiber.child) {
+    return null;
+  }
+  switch (containerFiber.child.tag) {
+    case HostComponent:
+      return getPublicInstance(containerFiber.child.stateNode);
+    default:
+      return containerFiber.child.stateNode;
+  }
 }

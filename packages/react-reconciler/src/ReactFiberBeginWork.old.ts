@@ -1,9 +1,9 @@
 import checkPropTypes from "../../shared/checkPropTypes";
 import getComponentNameFromType from "../../shared/getComponentNameFromType";
 import invariant from "../../shared/invariant";
-import { debugRenderPhaseSideEffectsForStrictMode, disableLegacyContext, disableModulePatternComponents, enableCache, enableLazyContextPropagation, enableProfilerTimer, enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
+import { debugRenderPhaseSideEffectsForStrictMode, disableLegacyContext, disableModulePatternComponents, enableCache, enableLazyContextPropagation, enableProfilerTimer, enableSchedulingProfiler, enableSuspenseLayoutEffectSemantics } from "../../shared/ReactFeatureFlags";
 import { createFiberFromTypeAndProps } from "./ReactFiber.old";
-import { ChildDeletion, DidCapture, ForceUpdateForLegacySuspense, NoFlags, PerformedWork, Placement } from "./ReactFiberFlags";
+import { ChildDeletion, ContentReset, DidCapture, ForceUpdateForLegacySuspense, Hydrating, NoFlags, PerformedWork, Placement, Ref, RefStatic } from "./ReactFiberFlags";
 import { includesSomeLane, Lanes, NoLanes } from "./ReactFiberLane.old";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
 import { IndeterminateComponent, LazyComponent, FunctionComponent, ClassComponent, HostRoot, HostComponent, HostText, SuspenseComponent, HostPortal, ForwardRef, Fragment, Mode, Profiler, ContextProvider, ContextConsumer, MemoComponent, SimpleMemoComponent, IncompleteClassComponent, SuspenseListComponent, ScopeComponent, OffscreenComponent, LegacyHiddenComponent, CacheComponent } from "./ReactWorkTags";
@@ -16,7 +16,7 @@ import {
   isContextProvider as isLegacyContextProvider,
   pushTopLevelContextObject,
 } from './ReactFiberContext.old';
-import { checkIfContextChanged, prepareToReadContext } from "./ReactFiberNewContext.old";
+import { checkIfContextChanged, prepareToReadContext, propagateContextChange } from "./ReactFiberNewContext.old";
 import { markComponentRenderStarted, markComponentRenderStopped } from "./SchedulingProfiler";
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { setIsRendering } from "./ReactCurrentFiber";
@@ -24,13 +24,16 @@ import { renderWithHooks } from "./ReactFiberHooks.old";
 import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
 import { StrictLegacyMode } from "./ReactTypeOfMode";
 import { disableLogs, reenableLogs } from "../../shared/ConsolePatchingDev";
-import { initializeUpdateQueue } from "./ReactUpdateQueue.old";
+import { cloneUpdateQueue, initializeUpdateQueue, processUpdateQueue } from "./ReactUpdateQueue.old";
 import { adoptClassInstance, mountClassInstance } from "./ReactFiberClassComponent.old";
 import { cloneChildFibers, mountChildFibers, reconcileChildFibers } from "./ReactChildFiber.old";
-import { pushHostContainer } from "./ReactFiberHostContext.old";
-import { pushCacheProvider, Cache, pushRootCachePool } from "./ReactFiberCacheComponent.old";
-import { resetHydrationState } from "./ReactFiberHydrationContext.old";
+import { pushHostContainer, pushHostContext } from "./ReactFiberHostContext.old";
+import { pushCacheProvider, Cache, pushRootCachePool, CacheContext } from "./ReactFiberCacheComponent.old";
+import { enterHydrationState, resetHydrationState, tryToClaimNextHydratableInstance } from "./ReactFiberHydrationContext.old";
 import { markSkippedUpdateLanes } from "./ReactFiberWorkLoop.old";
+import { shouldSetTextContent, supportsHydration } from "./ReactFiberHostConfig";
+import { MutableSource } from "../../shared/ReactTypes";
+import { setWorkInProgressVersion } from "./ReactMutableSource.old";
 
 const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 
@@ -834,10 +837,10 @@ export function beginWork(
     //     renderLanes,
     //   );
     // }
-    // case HostRoot:
-    //   return updateHostRoot(current, workInProgress, renderLanes);
-    // case HostComponent:
-    //   return updateHostComponent(current, workInProgress, renderLanes);
+    case HostRoot:
+      return updateHostRoot(current!, workInProgress, renderLanes);
+    case HostComponent:
+      return updateHostComponent(current, workInProgress, renderLanes);
     // case HostText:
     //   return updateHostText(current, workInProgress);
     // case SuspenseComponent:
@@ -963,4 +966,136 @@ export function checkIfWorkInProgressReceivedUpdate() {
 
 function validateFunctionComponentInDev(workInProgress: Fiber, Component: any) {
   
+}
+
+function updateHostRoot(current: Fiber, workInProgress: Fiber, renderLanes: Lanes) {
+  pushHostRootContext(workInProgress);
+  const updateQueue = workInProgress.updateQueue;
+  invariant(
+    current !== null && updateQueue !== null,
+    'If the root does not have an updateQueue, we should have already ' +
+      'bailed out. This error is likely caused by a bug in React. Please ' +
+      'file an issue.',
+  );
+  const nextProps = workInProgress.pendingProps;
+  const prevState = workInProgress.memoizedState;
+  const prevChildren = prevState.element;
+  cloneUpdateQueue(current, workInProgress);
+  processUpdateQueue(workInProgress, nextProps, null, renderLanes);
+  const nextState = workInProgress.memoizedState;
+
+  const root: FiberRoot = workInProgress.stateNode;
+
+  if (enableCache) {
+    const nextCache: Cache = nextState.cache;
+    pushRootCachePool(root);
+    pushCacheProvider(workInProgress, nextCache);
+    if (nextCache !== prevState.cache) {
+      // The root cache refreshed.
+      propagateContextChange(workInProgress, CacheContext, renderLanes);
+    }
+  }
+
+  // Caution: React DevTools currently depends on this property
+  // being called "element".
+  const nextChildren = nextState.element;
+  if (nextChildren === prevChildren) {
+    resetHydrationState();
+    return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
+  }
+  if (root.hydrate && enterHydrationState(workInProgress)) {
+    // If we don't have any current children this might be the first pass.
+    // We always try to hydrate. If this isn't a hydration pass there won't
+    // be any children to hydrate which is effectively the same thing as
+    // not hydrating.
+
+    if (supportsHydration) {
+      const mutableSourceEagerHydrationData =
+        root.mutableSourceEagerHydrationData;
+      if (mutableSourceEagerHydrationData != null) {
+        for (let i = 0; i < mutableSourceEagerHydrationData.length; i += 2) {
+          const mutableSource = ((mutableSourceEagerHydrationData[
+            i
+          ] as any) as MutableSource<any>);
+          const version = mutableSourceEagerHydrationData[i + 1];
+          setWorkInProgressVersion(mutableSource, version);
+        }
+      }
+    }
+
+    const child = mountChildFibers(
+      workInProgress,
+      null,
+      nextChildren,
+      renderLanes,
+    );
+    workInProgress.child = child;
+
+    let node = child;
+    while (node) {
+      // Mark each child as hydrating. This is a fast path to know whether this
+      // tree is part of a hydrating tree. This is used to determine if a child
+      // node has fully mounted yet, and for scheduling event replaying.
+      // Conceptually this is similar to Placement in that a new subtree is
+      // inserted into the React tree here. It just happens to not need DOM
+      // mutations because it already exists.
+      node.flags = (node.flags & ~Placement) | Hydrating;
+      node = node.sibling;
+    }
+  } else {
+    // Otherwise reset hydration state in case we aborted and resumed another
+    // root.
+    reconcileChildren(current, workInProgress, nextChildren, renderLanes);
+    resetHydrationState();
+  }
+  return workInProgress.child;
+}
+
+function markRef(current: Fiber | null, workInProgress: Fiber) {
+  const ref = workInProgress.ref;
+  if (
+    (current === null && ref !== null) ||
+    (current !== null && current.ref !== ref)
+  ) {
+    // Schedule a Ref effect
+    workInProgress.flags |= Ref;
+    if (enableSuspenseLayoutEffectSemantics) {
+      workInProgress.flags |= RefStatic;
+    }
+  }
+}
+
+function updateHostComponent(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  renderLanes: Lanes,
+) {
+  pushHostContext(workInProgress);
+
+  if (current === null) {
+    tryToClaimNextHydratableInstance(workInProgress);
+  }
+
+  const type = workInProgress.type;
+  const nextProps = workInProgress.pendingProps;
+  const prevProps = current !== null ? current.memoizedProps : null;
+
+  let nextChildren = nextProps.children;
+  const isDirectTextChild = shouldSetTextContent(type, nextProps);
+
+  if (isDirectTextChild) {
+    // We special case a direct text child of a host node. This is a common
+    // case. We won't handle it as a reified child. We will instead handle
+    // this in the host environment that also has access to this prop. That
+    // avoids allocating another HostText fiber and traversing it.
+    nextChildren = null;
+  } else if (prevProps !== null && shouldSetTextContent(type, prevProps)) {
+    // If we're switching from a direct text child to a normal child, or to
+    // empty, we need to schedule the text content to be reset.
+    workInProgress.flags |= ContentReset;
+  }
+
+  markRef(current, workInProgress);
+  reconcileChildren(current, workInProgress, nextChildren, renderLanes);
+  return workInProgress.child;
 }

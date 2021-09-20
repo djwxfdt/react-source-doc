@@ -91,3 +91,5 @@ export const enableLazyContextPropagation = false;
 export const disableModulePatternComponents = false;
 
 export const enablePersistentOffscreenHostContainer = false;
+
+export const enableSuspenseLayoutEffectSemantics = true;
