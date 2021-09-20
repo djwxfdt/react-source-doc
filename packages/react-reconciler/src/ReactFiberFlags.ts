@@ -23,6 +23,8 @@ export const Visibility = /*                   */ 0b00000000001000000000000;
 export const PassiveMask = Passive | ChildDeletion;
 
 
+export const LifecycleEffectMask = Passive | Update | Callback | Ref | Snapshot;
+
 export const HostEffectMask = /*               */ 0b00000000001111111111111;
 
 // These are not really side effects, but we still reuse this field.

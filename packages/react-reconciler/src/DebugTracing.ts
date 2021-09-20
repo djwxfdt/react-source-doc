@@ -1,12 +1,24 @@
 import { enableDebugTracing } from "../../shared/ReactFeatureFlags";
 import { Lane, Lanes } from "./ReactFiberLane.old";
+import { Wakeable } from "./ReactInternalTypes";
 
 
 const nativeConsole: Console = console;
 let nativeConsoleLog: null | Function = null;
 
 const pendingGroupArgs: Array<any> = [];
-let printedGroupIndex: number = -1;
+let printedGroupIndex = -1;
+
+const PossiblyWeakMap = typeof WeakMap === 'function' ? WeakMap : Map;
+// $FlowFixMe: Flow cannot handle polymorphic WeakMaps
+const wakeableIDs: WeakMap<Wakeable, number> = new PossiblyWeakMap();
+let wakeableID = 0;
+function getWakeableID(wakeable: Wakeable): number {
+  if (!wakeableIDs.has(wakeable)) {
+    wakeableIDs.set(wakeable, wakeableID++);
+  }
+  return ((wakeableIDs.get(wakeable) as any) as number);
+}
 
 function formatLanes(laneOrLanes: Lane | Lanes): string {
   return '0b' + laneOrLanes.toString(2).padStart(31, '0');
@@ -82,6 +94,47 @@ export function logRenderStarted(lanes: Lanes): void {
         REACT_LOGO_STYLE,
         '',
         'font-weight: normal;',
+      );
+    }
+  }
+}
+
+
+
+export function logComponentSuspended(
+  componentName: string,
+  wakeable: Wakeable,
+): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      const id = getWakeableID(wakeable);
+      const display = (wakeable as any).displayName || wakeable;
+      log(
+        `%c⚛️%c ${componentName} suspended`,
+        REACT_LOGO_STYLE,
+        'color: #80366d; font-weight: bold;',
+        id,
+        display,
+      );
+      wakeable.then(
+        () => {
+          log(
+            `%c⚛️%c ${componentName} resolved`,
+            REACT_LOGO_STYLE,
+            'color: #80366d; font-weight: bold;',
+            id,
+            display,
+          );
+        },
+        () => {
+          log(
+            `%c⚛️%c ${componentName} rejected`,
+            REACT_LOGO_STYLE,
+            'color: #80366d; font-weight: bold;',
+            id,
+            display,
+          );
+        },
       );
     }
   }

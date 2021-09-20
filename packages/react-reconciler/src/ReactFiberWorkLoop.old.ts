@@ -16,9 +16,12 @@ import {
   includesSomeLane,
   movePendingFibersToMemoized,
   getLanesToRetrySynchronouslyOnError,
+  isSubsetOfLanes,
+  markRootPinged,
+  includesOnlyRetries,
 } from "./ReactFiberLane.old";
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
-import { Dispatcher, Fiber, FiberRoot } from "./ReactInternalTypes";
+import { Dispatcher, Fiber, FiberRoot, Wakeable } from "./ReactInternalTypes";
 import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
 import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, IndeterminateComponent, MemoComponent, Profiler, SimpleMemoComponent } from "./ReactWorkTags";
 import {
@@ -155,6 +158,10 @@ let hasUncaughtError = false;
 let firstUncaughtError = null;
 
 let legacyErrorBoundariesThatAlreadyFailed: Set<mixed> | null = null;
+
+let globalMostRecentFallbackTime = 0;
+const FALLBACK_THROTTLE_MS = 500;
+
 
 /**
  * 在开发模式下会展示更友好的出错信息
@@ -1691,4 +1698,59 @@ export function markSkippedUpdateLanes(lane: Lane | Lanes): void {
     lane,
     workInProgressRootSkippedLanes,
   );
+}
+
+export function pingSuspendedRoot(
+  root: FiberRoot,
+  wakeable: Wakeable,
+  pingedLanes: Lanes,
+) {
+  const pingCache = root.pingCache;
+  if (pingCache !== null) {
+    // The wakeable resolved, so we no longer need to memoize, because it will
+    // never be thrown again.
+    pingCache.delete(wakeable);
+  }
+
+  const eventTime = requestEventTime();
+  markRootPinged(root, pingedLanes, eventTime);
+
+  if (
+    workInProgressRoot === root &&
+    isSubsetOfLanes(workInProgressRootRenderLanes, pingedLanes)
+  ) {
+    // Received a ping at the same priority level at which we're currently
+    // rendering. We might want to restart this render. This should mirror
+    // the logic of whether or not a root suspends once it completes.
+
+    // TODO: If we're rendering sync either due to Sync, Batched or expired,
+    // we should probably never restart.
+
+    // If we're suspended with delay, or if it's a retry, we'll always suspend
+    // so we can always restart.
+    if (
+      workInProgressRootExitStatus === RootSuspendedWithDelay ||
+      (workInProgressRootExitStatus === RootSuspended &&
+        includesOnlyRetries(workInProgressRootRenderLanes) &&
+        now() - globalMostRecentFallbackTime < FALLBACK_THROTTLE_MS)
+    ) {
+      // Restart from the root.
+      prepareFreshStack(root, NoLanes);
+    } else {
+      // Even though we can't restart right now, we might get an
+      // opportunity later. So we mark this render as having a ping.
+      workInProgressRootPingedLanes = mergeLanes(
+        workInProgressRootPingedLanes,
+        pingedLanes,
+      );
+    }
+  }
+
+  ensureRootIsScheduled(root, eventTime);
+}
+
+export function renderDidError() {
+  if (workInProgressRootExitStatus !== RootCompleted) {
+    workInProgressRootExitStatus = RootErrored;
+  }
 }

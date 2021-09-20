@@ -1,18 +1,27 @@
+/* eslint-disable no-case-declarations */
 import type {Fiber, Wakeable} from './ReactInternalTypes';
 import type {FiberRoot} from './ReactInternalTypes';
 import {includesSomeLane, Lane, Lanes, mergeLanes, NoTimestamp, pickArbitraryLane, SyncLane} from './ReactFiberLane.old';
 import {CapturedValue, createCapturedValue} from './ReactCapturedValue';
 import {CaptureUpdate, createUpdate, enqueueCapturedUpdate, enqueueUpdate, ForceUpdate, Update} from './ReactUpdateQueue.old';
-import { isAlreadyFailedLegacyErrorBoundary, markLegacyErrorBoundaryAsFailed, onUncaughtError, restorePendingUpdaters } from './ReactFiberWorkLoop.old';
+import { isAlreadyFailedLegacyErrorBoundary, markLegacyErrorBoundaryAsFailed, onUncaughtError, pingSuspendedRoot, renderDidError, restorePendingUpdaters } from './ReactFiberWorkLoop.old';
 import {logCapturedError} from './ReactFiberErrorLogger'
 import { markFailedErrorBoundaryForHotReloading } from './ReactFiberHotReloading.old';
 import getComponentNameFromFiber from './getComponentNameFromFiber';
-import { enableUpdaterTracking, enableLazyContextPropagation, enableDebugTracing, enableSchedulingProfiler } from '../../shared/ReactFeatureFlags';
+import { enableUpdaterTracking, enableLazyContextPropagation, enableDebugTracing, enableSchedulingProfiler, enablePersistentOffscreenHostContainer } from '../../shared/ReactFeatureFlags';
 import { isDevToolsPresent } from './ReactFiberDevToolsHook.old';
-import { DidCapture, ForceUpdateForLegacySuspense, Incomplete, NoFlags, ShouldCapture } from './ReactFiberFlags';
+import { DidCapture, ForceUpdateForLegacySuspense, Incomplete, LifecycleEffectMask, NoFlags, ShouldCapture } from './ReactFiberFlags';
 import { DebugTracingMode, ConcurrentMode, NoMode } from './ReactTypeOfMode';
 import { FunctionComponent, ForwardRef, SimpleMemoComponent, SuspenseComponent, ClassComponent, IncompleteClassComponent, HostRoot } from './ReactWorkTags';
-import { markComponentRenderStopped } from './SchedulingProfiler';
+import { markComponentRenderStopped, markComponentSuspended } from './SchedulingProfiler';
+import { propagateParentContextChangesToDeferredTree } from './ReactFiberNewContext.old';
+import { logComponentSuspended } from './DebugTracing';
+import { hasSuspenseContext, suspenseStackCursor, InvisibleParentSuspenseContext, SuspenseContext } from './ReactFiberSuspenseContext.old';
+import { shouldCaptureSuspense } from './ReactFiberSuspenseComponent.old';
+import { getOffscreenContainerProps, supportsPersistence } from './ReactFiberHostConfig';
+
+const PossiblyWeakMap = typeof WeakMap === 'function' ? WeakMap : Map;
+
 
 export function createRootErrorUpdate(
   fiber: Fiber,
@@ -92,6 +101,39 @@ export function createClassErrorUpdate(
   }
   return update;
 }
+
+
+function attachPingListener(root: FiberRoot, wakeable: Wakeable, lanes: Lanes) {
+  // Attach a listener to the promise to "ping" the root and retry. But only if
+  // one does not already exist for the lanes we're currently rendering (which
+  // acts like a "thread ID" here).
+  let pingCache = root.pingCache;
+  let threadIDs;
+  if (pingCache === null) {
+    pingCache = root.pingCache = new PossiblyWeakMap();
+    threadIDs = new Set();
+    pingCache.set(wakeable, threadIDs);
+  } else {
+    threadIDs = pingCache.get(wakeable);
+    if (threadIDs === undefined) {
+      threadIDs = new Set();
+      pingCache.set(wakeable, threadIDs);
+    }
+  }
+  if (!threadIDs.has(lanes)) {
+    // Memoize using the thread ID to prevent redundant listeners.
+    threadIDs.add(lanes);
+    const ping = pingSuspendedRoot.bind(null, root, wakeable, lanes);
+    if (enableUpdaterTracking) {
+      if (isDevToolsPresent) {
+        // If we have pending work still, restore the original updaters
+        restorePendingUpdaters(root, lanes);
+      }
+    }
+    wakeable.then(ping, ping);
+  }
+}
+
 
 export function throwException(
   root: FiberRoot,
@@ -185,9 +227,9 @@ export function throwException(
 
         // Stash the promise on the boundary fiber. If the boundary times out, we'll
         // attach another listener to flip the boundary back to its normal state.
-        const wakeables: Set<Wakeable> = (workInProgress.updateQueue: any);
+        const wakeables: Set<Wakeable> = (workInProgress.updateQueue as any);
         if (wakeables === null) {
-          const updateQueue = (new Set(): any);
+          const updateQueue = (new Set() as any);
           updateQueue.add(wakeable);
           workInProgress.updateQueue = updateQueue;
         } else {

@@ -1,7 +1,7 @@
 import { enableSchedulingProfiler } from "../../shared/ReactFeatureFlags";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { Lane, Lanes } from "./ReactFiberLane.old";
-import { Fiber } from "./ReactInternalTypes";
+import { Fiber, Wakeable } from "./ReactInternalTypes";
 
 
 let supportsUserTimingV3 = false;
@@ -65,6 +65,39 @@ export function markRenderStopped(): void {
   if (enableSchedulingProfiler) {
     if (supportsUserTimingV3) {
       markAndClear('--render-stop');
+    }
+  }
+}
+
+const PossiblyWeakMap = typeof WeakMap === 'function' ? WeakMap : Map;
+const wakeableIDs: WeakMap<Wakeable, number> = new PossiblyWeakMap();
+let wakeableID = 0;
+function getWakeableID(wakeable: Wakeable): number {
+  if (!wakeableIDs.has(wakeable)) {
+    wakeableIDs.set(wakeable, wakeableID++);
+  }
+  return ((wakeableIDs.get(wakeable) as any) as number);
+}
+
+export function markComponentSuspended(
+  fiber: Fiber,
+  wakeable: Wakeable,
+  lanes: Lanes,
+): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      const eventType = wakeableIDs.has(wakeable) ? 'resuspend' : 'suspend';
+      const id = getWakeableID(wakeable);
+      const componentName = getComponentNameFromFiber(fiber) || 'Unknown';
+      const phase = fiber.alternate === null ? 'mount' : 'update';
+      // TODO (scheduling profiler) Add component stack id
+      markAndClear(
+        `--suspense-${eventType}-${id}-${componentName}-${phase}-${lanes}`,
+      );
+      wakeable.then(
+        () => markAndClear(`--suspense-resolved-${id}-${componentName}`),
+        () => markAndClear(`--suspense-rejected-${id}-${componentName}`),
+      );
     }
   }
 }

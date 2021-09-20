@@ -80,6 +80,14 @@ export function includesSomeLane(a: Lanes | Lane, b: Lanes | Lane) {
   return (a & b) !== NoLanes;
 }
 
+export function includesOnlyRetries(lanes: Lanes) {
+  return (lanes & RetryLanes) === lanes;
+}
+
+export function isSubsetOfLanes(set: Lanes, subset: Lanes | Lane) {
+  return (set & subset) === subset;
+}
+
 export function createLaneMap<T>(initial: T): LaneMap<T> {
   // Intentionally pushing one by one.
   // https://v8.dev/blog/elements-kinds#avoid-creating-holes
@@ -193,6 +201,15 @@ export function markRootUpdated(
   // recent event, and we assume time is monotonically increasing.
   eventTimes[index] = eventTime;
 }
+
+export function markRootPinged(
+  root: FiberRoot,
+  pingedLanes: Lanes,
+  eventTime: number,
+) {
+  root.pingedLanes |= root.suspendedLanes & pingedLanes;
+}
+
 
 /**
  * 获取32位模式下，数值转为二进制之后前面0的个数
@@ -613,3 +630,4 @@ export function getLanesToRetrySynchronouslyOnError(root: FiberRoot): Lanes {
   }
   return NoLanes;
 }
+

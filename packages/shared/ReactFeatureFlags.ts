@@ -60,6 +60,9 @@ export const debugRenderPhaseSideEffectsForStrictMode = __DEV__;
 
 
 
+export const enableSuspenseServerRenderer = true;
+
+
 // Updates that occur in the render phase are not officially supported. But when
 // they do occur, we defer them to a subsequent render by picking a lane that's
 // not currently rendering. We treat them the same as if they came from an
@@ -86,3 +89,5 @@ export const enableScopeAPI = false;
 export const enableLazyContextPropagation = false;
 
 export const disableModulePatternComponents = false;
+
+export const enablePersistentOffscreenHostContainer = false;
