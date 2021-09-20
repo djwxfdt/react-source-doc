@@ -131,3 +131,7 @@ b. 如果处于浏览器的宏/微任务回调，就返回上次处于react执�
 2. 将workInProgress设置为当前fiber的sibling.如果sibling不为空则开始下个循环的workLoop
 
 3. 如果sibling为空, 则执行returnFiber的completeUnitOfWork
+
+
+# 流程图
+![流程图1](./mmd/update-container.mmd.svg)

@@ -213,8 +213,8 @@ function forEachChildren(
 ): void {
   mapChildren(
     children,
-    function() {
-      forEachFunc.apply(this, arguments);
+    function(this: any) {
+      forEachFunc.apply(this, arguments as any);
       // 不返回任何东西
     },
     forEachContext,

@@ -112,7 +112,7 @@ function pushEffect(tag: HookFlags, create: any, destroy: any, deps: any) {
   let componentUpdateQueue: null | FunctionComponentUpdateQueue = (currentlyRenderingFiber.updateQueue as any);
   if (componentUpdateQueue === null) {
     componentUpdateQueue = createFunctionComponentUpdateQueue();
-    currentlyRenderingFiber.updateQueue = (componentUpdateQueue: any);
+    currentlyRenderingFiber.updateQueue = (componentUpdateQueue as any);
     componentUpdateQueue.lastEffect = effect.next = effect;
   } else {
     const lastEffect = componentUpdateQueue.lastEffect;
@@ -192,13 +192,13 @@ const HooksDispatcherOnMount: Dispatcher = {
   // useOpaqueIdentifier: mountOpaqueIdentifier,
 
   unstable_isNewReconciler: enableNewReconciler,
-};
+} as any;
 
 const HooksDispatcherOnUpdate: Dispatcher = {
   readContext,
 
   // useCallback: updateCallback,
-  // useContext: readContext,
+  useContext: readContext,
   // useEffect: updateEffect,
   // useImperativeHandle: updateImperativeHandle,
   // useLayoutEffect: updateLayoutEffect,
@@ -213,7 +213,7 @@ const HooksDispatcherOnUpdate: Dispatcher = {
   // useOpaqueIdentifier: updateOpaqueIdentifier,
 
   unstable_isNewReconciler: enableNewReconciler,
-};
+} as any;
 
 const HooksDispatcherOnRerender: Dispatcher = {
   readContext,
@@ -234,7 +234,7 @@ const HooksDispatcherOnRerender: Dispatcher = {
   // useOpaqueIdentifier: rerenderOpaqueIdentifier,
 
   unstable_isNewReconciler: enableNewReconciler,
-};
+} as any;
 
 export type Hook = {
   memoizedState: any,
@@ -298,7 +298,7 @@ export const ContextOnlyDispatcher: Dispatcher = {
   // useOpaqueIdentifier: throwInvalidHookError,
 
   // unstable_isNewReconciler: enableNewReconciler,
-};
+} as any;
 
 
 export function resetHooksAfterThrow(): void {

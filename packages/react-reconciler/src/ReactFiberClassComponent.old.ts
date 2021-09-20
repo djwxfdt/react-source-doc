@@ -1,8 +1,7 @@
 import { Lanes } from "./ReactFiberLane.old";
 import { Fiber } from "./ReactInternalTypes";
 
-
-
+import * as React from '../../react'
 
 export function adoptClassInstance(workInProgress: Fiber, instance: any): void {
   // instance.updater = classComponentUpdater;
@@ -23,4 +22,4 @@ export function mountClassInstance(
   
 }
 
-export const emptyRefsObject = new React.Component().refs;
+export const emptyRefsObject = new (React.Component as any)().refs;

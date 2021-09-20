@@ -4,7 +4,7 @@ import { deferRenderPhaseUpdateToNextBatch, enableDebugTracing, enableProfilerCo
 import { ContinuousEventPriority, DefaultEventPriority, DiscreteEventPriority, getCurrentUpdatePriority, IdleEventPriority, lanesToEventPriority, lowerEventPriority, setCurrentUpdatePriority } from "./ReactEventPriorities.old";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Flags, Hydrating, MountLayoutDev, MountPassiveDev, NoFlags, Placement, Update, PassiveStatic, Incomplete, HostEffectMask } from "./ReactFiberFlags";
-import { cancelTimeout, clearContainer, errorHydratingContainer, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks } from "./ReactFiberHostConfig";
+import { cancelTimeout, clearContainer, errorHydratingContainer, getCurrentEventPriority, noTimeout, scheduleMicrotask, supportsMicrotasks, warnsIfNotActing } from "./ReactFiberHostConfig";
 import {
   addFiberToLanesMap,
   claimNextTransitionLane, Lane, Lanes, markRootUpdated, mergeLanes,
@@ -22,7 +22,7 @@ import {
 } from "./ReactFiberLane.old";
 import { NoTransition, requestCurrentTransition } from "./ReactFiberTransition";
 import { Dispatcher, Fiber, FiberRoot, Wakeable } from "./ReactInternalTypes";
-import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
+import { ConcurrentMode, NoMode, ProfileMode, StrictLegacyMode } from "./ReactTypeOfMode";
 import { ClassComponent, ForwardRef, FunctionComponent, HostRoot, IndeterminateComponent, MemoComponent, Profiler, SimpleMemoComponent } from "./ReactWorkTags";
 import {
   now,
@@ -1752,5 +1752,35 @@ export function pingSuspendedRoot(
 export function renderDidError() {
   if (workInProgressRootExitStatus !== RootCompleted) {
     workInProgressRootExitStatus = RootErrored;
+  }
+}
+
+export function warnIfNotCurrentlyActingEffectsInDEV(fiber: Fiber): void {
+  if (__DEV__) {
+    if (
+      warnsIfNotActing === true &&
+      (fiber.mode & StrictLegacyMode) !== NoMode &&
+      ReactCurrentActQueue.current === null &&
+      // Our internal tests use a custom implementation of `act` that works by
+      // mocking the Scheduler package. Disable the `act` warning.
+      // TODO: Maybe the warning should be disabled by default, and then turned
+      // on at the testing frameworks layer? Instead of what we do now, which
+      // is check if a `jest` global is defined.
+      ReactCurrentActQueue.disableActWarning === false
+    ) {
+      console.error(
+        'An update to %s ran an effect, but was not wrapped in act(...).\n\n' +
+          'When testing, code that causes React state updates should be ' +
+          'wrapped into act(...):\n\n' +
+          'act(() => {\n' +
+          '  /* fire events that update state */\n' +
+          '});\n' +
+          '/* assert on the output */\n\n' +
+          "This ensures that you're testing the behavior the user would see " +
+          'in the browser.' +
+          ' Learn more at https://reactjs.org/link/wrap-tests-with-act',
+        getComponentNameFromFiber(fiber),
+      );
+    }
   }
 }

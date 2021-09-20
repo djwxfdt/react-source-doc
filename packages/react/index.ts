@@ -1,3 +1,4 @@
 export {
-  Children
+  Children,
+  Component
 } from './src/React';

@@ -8,4 +8,5 @@
 | 模块  | 进度 |
 | ---- | ---- |
 | 任务调度（scheduler）| [已完成](./packages/scheduler/README.md) |
-| 协调（react-reconciler）| [文档生成中](./packages/react-reconciler/README.md) |
+| 协调（react-reconciler）| [已完成](./packages/react-reconciler/README.md) |
+| React | 进行中 |
