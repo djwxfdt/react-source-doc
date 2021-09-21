@@ -1,3 +1,5 @@
+import { enableCreateEventHandleAPI } from "../../shared/ReactFeatureFlags";
+
 export type Flags = number;
 
 export const NoFlags = /*                      */ 0b00000000000000000000000;
@@ -20,8 +22,6 @@ export const Hydrating = /*                    */ 0b00000000000100000000000;
 export const HydratingAndUpdate = /*           */ Hydrating | Update;
 export const Visibility = /*                   */ 0b00000000001000000000000;
 
-export const PassiveMask = Passive | ChildDeletion;
-
 
 export const LifecycleEffectMask = Passive | Update | Callback | Ref | Snapshot;
 
@@ -42,7 +42,33 @@ export const RefStatic = /*                    */ 0b00001000000000000000000;
 export const LayoutStatic = /*                 */ 0b00010000000000000000000;
 export const PassiveStatic = /*                */ 0b00100000000000000000000;
 
+export const BeforeMutationMask =
+  // TODO: Remove Update flag from before mutation phase by re-landing Visiblity
+  // flag logic (see #20043)
+  Update |
+  Snapshot |
+  (enableCreateEventHandleAPI
+    ? // createEventHandle needs to visit deleted and hidden trees to
+      // fire beforeblur
+      // TODO: Only need to visit Deletions during BeforeMutation phase if an
+      // element is focused.
+      ChildDeletion | Visibility
+    : 0);
 
+export const MutationMask =
+  Placement |
+  Update |
+  ChildDeletion |
+  ContentReset |
+  Ref |
+  Hydrating |
+  Visibility;
+export const LayoutMask = Update | Callback | Ref | Visibility;
 
+// TODO: Split into PassiveMountMask and PassiveUnmountMask
+export const PassiveMask = Passive | ChildDeletion;
+
+// Union of tags that don't get reset on clones.
+// This allows certain concepts to persist without recalculting them,
+// e.g. whether a subtree contains passive effects or portals.
 export const StaticMask = LayoutStatic | PassiveStatic | RefStatic;
-

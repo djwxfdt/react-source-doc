@@ -208,3 +208,18 @@ function findCurrentHostFiberWithNoPortalsImpl(node: Fiber): any {
 
   return null;
 }
+
+export function doesFiberContain(
+  parentFiber: Fiber,
+  childFiber: Fiber,
+): boolean {
+  let node = childFiber;
+  const parentFiberAlternate = parentFiber.alternate;
+  while (node !== null) {
+    if (node === parentFiber || node === parentFiberAlternate) {
+      return true;
+    }
+    node = node.return!;
+  }
+  return false;
+}

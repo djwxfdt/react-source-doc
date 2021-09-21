@@ -55,6 +55,10 @@ export const enableFilterEmptyStringAttributesDOM = false;
 
 export const disableJavaScriptURLs = false;
 
+export const enableCreateEventHandleAPI = false;
+
+export const warnAboutDeprecatedLifecycles = true;
+
 
 /**
  * React 18的功能，开启后，react将有意的调用两次effects, mount -> unmount -> mount。用于检查effect是否有问题

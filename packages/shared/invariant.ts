@@ -23,7 +23,7 @@
 /**
  * 简单重写了下，不影响效果
  */
-export default function invariant(condition: boolean, format: string, ...args: any[]) {
+export default function invariant(condition: any, format: string, ...args: any[]) {
   if (!condition) {
     const message = format.split('%s').map((str, index) => (str + args[index] || '') ).join('')
     throw Error(message)

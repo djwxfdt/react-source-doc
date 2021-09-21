@@ -1,16 +1,38 @@
+/* eslint-disable no-case-declarations */
 import { DefaultEventPriority } from "../../../react-reconciler/src/ReactEventPriorities";
-import { FiberRoot } from "../../../react-reconciler/src/ReactInternalTypes";
-import { enableSuspenseServerRenderer } from "../../../shared/ReactFeatureFlags";
+import { Fiber, FiberRoot } from "../../../react-reconciler/src/ReactInternalTypes";
+import { enableCreateEventHandleAPI, enableSuspenseServerRenderer } from "../../../shared/ReactFeatureFlags";
 import { REACT_OPAQUE_ID_TYPE } from "../../../shared/ReactSymbols";
 import { DOMEventName } from "../events/DOMEventNames";
 import { getEventPriority } from "../events/ReactDOMEventListener";
 import { getChildNamespace } from "../shared/DOMNamespaces";
 import { COMMENT_NODE, DOCUMENT_FRAGMENT_NODE, DOCUMENT_NODE, ELEMENT_NODE, TEXT_NODE } from "../shared/HTMLNodeType";
 import { createElement, diffHydratedProperties, diffProperties, setInitialProperties } from "./ReactDOMComponent";
-import { precacheFiberNode, updateFiberProps, warnForInsertedHydratedElement, warnForInsertedHydratedText } from "./ReactDOMComponentTree";
+import { getSelectionInformation, restoreSelection } from "./ReactInputSelection";
 import { updatedAncestorInfo, validateDOMNesting } from "./validateDOMNesting";
 
+import {
+  precacheFiberNode,
+  updateFiberProps,
+  // getClosestInstanceFromNode,
+  // getFiberFromScopeInstance,
+  getInstanceFromNode as getInstanceFromNodeDOMTree,
+  isContainerMarkedAsRoot,
+  warnForInsertedHydratedElement,
+  warnForInsertedHydratedText,
+  getClosestInstanceFromNode,
+} from './ReactDOMComponentTree';
+
 export {detachDeletedInstance} from './ReactDOMComponentTree';
+
+import {
+  isEnabled as ReactBrowserEventEmitterIsEnabled,
+  setEnabled as ReactBrowserEventEmitterSetEnabled,
+  // getEventPriority,
+} from '../events/ReactDOMEventListener'
+import { HostComponent, HostText } from "../../../react-reconciler/src/ReactWorkTags";
+import { BoundingRect, IntersectionObserverOptions, ObserveVisibleRectsCallback } from "../../../react-reconciler/src/ReactTestSelectors";
+import { hasRole } from "./DOMAccessibilityRoles";
 
 export type Type = string;
 
@@ -35,7 +57,22 @@ type HostContextDev = {
   [key: string]: any
 };
 
+type SelectionInformation = {
+  focusedElem: null | HTMLElement,
+  selectionRange: mixed,
+};
+
+type RectRatio = {
+  ratio: number,
+  rect: BoundingRect,
+};
+
 let didWarnInvalidHydration = false;
+
+
+let eventsEnabled = null as boolean | null;
+let selectionInformation: null | SelectionInformation = null;
+
 
 type HostContextProd = string;
 
@@ -584,4 +621,241 @@ export function isOpaqueHydratingObject(value: mixed): boolean {
     typeof value === 'object' &&
     value.$$typeof === REACT_OPAQUE_ID_TYPE
   );
+}
+
+export function resetAfterCommit(containerInfo: Container): void {
+  restoreSelection(selectionInformation);
+  ReactBrowserEventEmitterSetEnabled(eventsEnabled);
+  eventsEnabled = null;
+  selectionInformation = null;
+}
+
+export const supportsTestSelectors = true;
+
+export function isHiddenSubtree(fiber: Fiber): boolean {
+  return fiber.tag === HostComponent && fiber.memoizedProps.hidden === true;
+}
+
+export function getBoundingRect(node: Instance): BoundingRect {
+  const rect = node.getBoundingClientRect();
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+export function getTextContent(fiber: Fiber): string | null {
+  switch (fiber.tag) {
+    case HostComponent:
+      let textContent = '';
+      const childNodes = fiber.stateNode.childNodes;
+      for (let i = 0; i < childNodes.length; i++) {
+        const childNode = childNodes[i];
+        if (childNode.nodeType === Node.TEXT_NODE) {
+          textContent += childNode.textContent;
+        }
+      }
+      return textContent;
+    case HostText:
+      return fiber.stateNode.textContent;
+  }
+
+  return null;
+}
+
+export function setFocusIfFocusable(node: Instance): boolean {
+  // The logic for determining if an element is focusable is kind of complex,
+  // and since we want to actually change focus anyway- we can just skip it.
+  // Instead we'll just listen for a "focus" event to verify that focus was set.
+  //
+  // We could compare the node to document.activeElement after focus,
+  // but this would not handle the case where application code managed focus to automatically blur.
+  let didFocus = false;
+  const handleFocus = () => {
+    didFocus = true;
+  };
+
+  const element = ((node as any) as HTMLElement);
+  try {
+    element.addEventListener('focus', handleFocus);
+    (element.focus || HTMLElement.prototype.focus).call(element);
+  } finally {
+    element.removeEventListener('focus', handleFocus);
+  }
+
+  return didFocus;
+}
+
+
+export function setupIntersectionObserver(
+  targets: Array<Instance>,
+  callback: ObserveVisibleRectsCallback,
+  options?: IntersectionObserverOptions,
+): {
+  disconnect: () => void,
+  observe: (instance: Instance) => void,
+  unobserve: (instance: Instance) => void,
+} {
+  const rectRatioCache: Map<Instance, RectRatio> = new Map();
+  targets.forEach(target => {
+    rectRatioCache.set(target, {
+      rect: getBoundingRect(target),
+      ratio: 0,
+    });
+  });
+
+  const handleIntersection = (entries: Array<IntersectionObserverEntry>) => {
+    entries.forEach(entry => {
+      const {boundingClientRect, intersectionRatio, target} = entry;
+      rectRatioCache.set(target, {
+        rect: {
+          x: boundingClientRect.left,
+          y: boundingClientRect.top,
+          width: boundingClientRect.width,
+          height: boundingClientRect.height,
+        },
+        ratio: intersectionRatio,
+      });
+    });
+
+    callback(Array.from(rectRatioCache.values()));
+  };
+
+  const observer = new IntersectionObserver(handleIntersection, options);
+  targets.forEach(target => {
+    observer.observe((target as any));
+  });
+
+  return {
+    disconnect: () => observer.disconnect(),
+    observe: target => {
+      rectRatioCache.set(target, {
+        rect: getBoundingRect(target),
+        ratio: 0,
+      });
+      observer.observe((target as any));
+    },
+    unobserve: target => {
+      rectRatioCache.delete(target);
+      observer.unobserve((target as any));
+    },
+  };
+}
+
+export function matchAccessibilityRole(node: Instance, role: string): boolean {
+  if (hasRole(node, role)) {
+    return true;
+  }
+
+  return false;
+}
+
+
+export function findFiberRoot(node: Instance): null | FiberRoot {
+  const stack = [node];
+  let index = 0;
+  while (index < stack.length) {
+    const current = stack[index++];
+    if (isContainerMarkedAsRoot(current)) {
+      return ((getInstanceFromNodeDOMTree(current) as any) as FiberRoot);
+    }
+    stack.push(...current.children as any);
+  }
+  return null;
+}
+
+export function prepareForCommit(containerInfo: Container) {
+  eventsEnabled = ReactBrowserEventEmitterIsEnabled();
+  selectionInformation = getSelectionInformation();
+  let activeInstance = null;
+  if (enableCreateEventHandleAPI) {
+    const focusedElem = selectionInformation.focusedElem;
+    if (focusedElem !== null) {
+      activeInstance = getClosestInstanceFromNode(focusedElem);
+    }
+  }
+  ReactBrowserEventEmitterSetEnabled(false);
+  return activeInstance;
+}
+export function getParentSuspenseInstance(
+  targetInstance: Node,
+): null | SuspenseInstance {
+  let node = targetInstance.previousSibling;
+  // Skip past all nodes within this suspense boundary.
+  // There might be nested nodes so we need to keep track of how
+  // deep we are and only break out when we're back on top.
+  let depth = 0;
+  while (node) {
+    if (node.nodeType === COMMENT_NODE) {
+      const data = ((node as any).data as string);
+      if (
+        data === SUSPENSE_START_DATA ||
+        data === SUSPENSE_FALLBACK_START_DATA ||
+        data === SUSPENSE_PENDING_START_DATA
+      ) {
+        if (depth === 0) {
+          return ((node as any) as SuspenseInstance);
+        } else {
+          depth--;
+        }
+      } else if (data === SUSPENSE_END_DATA) {
+        depth++;
+      }
+    }
+    node = node.previousSibling;
+  }
+  return null;
+}
+
+
+function createEvent(type: DOMEventName, bubbles: boolean): Event {
+  const event = document.createEvent('Event');
+  event.initEvent(((type as any) as string), bubbles, false);
+  return event;
+}
+
+function dispatchBeforeDetachedBlur(
+  target: HTMLElement,
+  internalInstanceHandle: Object,
+): void {
+  if (enableCreateEventHandleAPI) {
+    const event = createEvent('beforeblur', true) as any;
+    // Dispatch "beforeblur" directly on the target,
+    // so it gets picked up by the event system and
+    // can propagate through the React internal tree.
+    // $FlowFixMe: internal field
+    event._detachedInterceptFiber = internalInstanceHandle;
+    target.dispatchEvent(event);
+  }
+}
+export function beforeActiveInstanceBlur(internalInstanceHandle: Object): void {
+  if (enableCreateEventHandleAPI) {
+    ReactBrowserEventEmitterSetEnabled(true);
+    dispatchBeforeDetachedBlur(
+      (selectionInformation as any).focusedElem,
+      internalInstanceHandle,
+    );
+    ReactBrowserEventEmitterSetEnabled(false);
+  }
+}
+
+function dispatchAfterDetachedBlur(target: HTMLElement): void {
+  if (enableCreateEventHandleAPI) {
+    const event = createEvent('afterblur', false);
+    // So we know what was detached, make the relatedTarget the
+    // detached target on the "afterblur" event.
+    (event as any).relatedTarget = target;
+    // Dispatch the event on the document.
+    document.dispatchEvent(event);
+  }
+}
+
+export function afterActiveInstanceBlur(): void {
+  if (enableCreateEventHandleAPI) {
+    ReactBrowserEventEmitterSetEnabled(true);
+    dispatchAfterDetachedBlur((selectionInformation as any).focusedElem);
+    ReactBrowserEventEmitterSetEnabled(false);
+  }
 }

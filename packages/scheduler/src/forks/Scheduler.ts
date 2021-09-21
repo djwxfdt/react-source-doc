@@ -4,7 +4,7 @@ import { enableIsInputPending, enableProfiling, enableSchedulerDebugging } from 
 import { IdlePriority, ImmediatePriority, LowPriority, NormalPriority, PriorityLevel, UserBlockingPriority } from "../SchedulerPriorities";
 
 
-var currentPriorityLevel = NormalPriority;
+let currentPriorityLevel = NormalPriority;
 
 function unstable_getCurrentPriorityLevel() {
   return currentPriorityLevel;
@@ -13,38 +13,38 @@ function unstable_getCurrentPriorityLevel() {
 /**
  * 自增id, 用于插入时候进行排序，相同优先级，先插入的先执行
  */
-var taskIdCounter = 1;
+let taskIdCounter = 1;
 
 
 /**
  * 32位系统最大整数
  */
-var maxSigned31BitInt = 1073741823;
+let maxSigned31BitInt = 1073741823;
 
 /**
  * 立即过期优先级的过期偏移量
  */
-var IMMEDIATE_PRIORITY_TIMEOUT = -1;
+let IMMEDIATE_PRIORITY_TIMEOUT = -1;
 
 /**
  * 用户阻塞优先级的过期偏移
  */
-var USER_BLOCKING_PRIORITY_TIMEOUT = 250;
+let USER_BLOCKING_PRIORITY_TIMEOUT = 250;
 
 /**
  * 普通优先级的过期偏移
  */
-var NORMAL_PRIORITY_TIMEOUT = 5000;
+let NORMAL_PRIORITY_TIMEOUT = 5000;
 
 /**
  * 低优先级的过期偏移
  */
-var LOW_PRIORITY_TIMEOUT = 10000;
+let LOW_PRIORITY_TIMEOUT = 10000;
 
 /**
  * 空闲优先级，永不过期
  */
-var IDLE_PRIORITY_TIMEOUT = maxSigned31BitInt;
+let IDLE_PRIORITY_TIMEOUT = maxSigned31BitInt;
 
 
 /**
@@ -94,12 +94,12 @@ let isSchedulerPaused = false;
 /**
  * 是否由回调函数调度
  */
-var isHostCallbackScheduled = false;
+let isHostCallbackScheduled = false;
 
 /**
  * 是否有定时调度任务在跑
  */
-var isHostTimeoutScheduled = false;
+let isHostTimeoutScheduled = false;
 
 let taskTimeoutID: number | undefined = -1;
 
@@ -116,7 +116,7 @@ let isMessageLoopRunning = false;
 /**
  * 是否正在执行任务，防止重入
  */
-var isPerformingWork = false;
+let isPerformingWork = false;
 
 
 /**
@@ -531,14 +531,14 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
   /**
    * 获得当前时间点
    */
-  var currentTime = getCurrentTime();
+  let currentTime = getCurrentTime();
 
   /**
    * 设置任务的预期执行时间，如果没传delay,则代表立即执行
    */
-  var startTime;
+  let startTime;
   if (typeof options === 'object' && options !== null) {
-    var delay = options.delay;
+    let delay = options.delay;
     if (typeof delay === 'number' && delay > 0) {
       startTime = currentTime + delay;
     } else {
@@ -551,7 +551,7 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
   /**
    * 根据传入的优先级，设置任务的过期时间
    */
-  var timeout;
+  let timeout;
   switch (priorityLevel) {
     case ImmediatePriority:
       timeout = IMMEDIATE_PRIORITY_TIMEOUT;
@@ -570,12 +570,12 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
       timeout = NORMAL_PRIORITY_TIMEOUT;
       break;
   }
-  var expirationTime = startTime + timeout;
+  let expirationTime = startTime + timeout;
 
   /**
    * 创建一个新的调度任务
    */
-  var newTask: TaskNode  = {
+  let newTask: TaskNode  = {
     id: taskIdCounter++,
     callback,
     priorityLevel,
@@ -630,6 +630,23 @@ function unstable_scheduleCallback(priorityLevel: PriorityLevel, callback: Funct
   }
 }
 
+
+function requestPaint() {
+  if (
+    enableIsInputPending &&
+    navigator !== undefined &&
+    navigator.scheduling !== undefined &&
+    navigator.scheduling.isInputPending !== undefined
+  ) {
+    needsPaint = true;
+  }
+
+  // Since we yield every frame regardless, `requestPaint` has no effect.
+}
+
+const unstable_requestPaint = requestPaint;
+
+
 export {
   ImmediatePriority as unstable_ImmediatePriority,
   UserBlockingPriority as unstable_UserBlockingPriority,
@@ -643,5 +660,6 @@ export {
   shouldYieldToHost as unstable_shouldYield,
   getCurrentTime as unstable_now,
 
-  unstable_getCurrentPriorityLevel
+  unstable_getCurrentPriorityLevel,
+  unstable_requestPaint
 };

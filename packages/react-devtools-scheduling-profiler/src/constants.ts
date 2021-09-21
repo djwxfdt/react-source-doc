@@ -1,0 +1,1 @@
+export const SCHEDULING_PROFILER_VERSION = 1;

@@ -126,7 +126,7 @@ b. 如果处于浏览器的宏/微任务回调，就返回上次处于react执�
 
 ## completeUnitOfWork （归阶段）
 
-1. 对当前fiber执行completeWork，做一些subTree优先级相关的设置
+1. 对当前fiber执行completeWork，做一些subTree优先级相关的设置和真实dom的生成
 
 2. 将workInProgress设置为当前fiber的sibling.如果sibling不为空则开始下个循环的workLoop
 

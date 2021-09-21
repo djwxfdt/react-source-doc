@@ -1,4 +1,4 @@
-import { allowConcurrentByDefault, enableUpdaterTracking } from "../../shared/ReactFeatureFlags";
+import { allowConcurrentByDefault, enableCache, enableSchedulingProfiler, enableUpdaterTracking } from "../../shared/ReactFeatureFlags";
 import { isDevToolsPresent } from "./ReactFiberDevToolsHook.old";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
 import { ConcurrentUpdatesByDefaultMode, NoMode } from "./ReactTypeOfMode";
@@ -592,6 +592,48 @@ export function markRootEntangled(root: FiberRoot, entangledLanes: Lanes) {
   }
 }
 
+
+export function markRootFinished(root: FiberRoot, remainingLanes: Lanes) {
+  const noLongerPendingLanes = root.pendingLanes & ~remainingLanes;
+
+  root.pendingLanes = remainingLanes;
+
+  // Let's try everything again
+  root.suspendedLanes = 0;
+  root.pingedLanes = 0;
+
+  root.expiredLanes &= remainingLanes;
+  root.mutableReadLanes &= remainingLanes;
+
+  root.entangledLanes &= remainingLanes;
+
+  if (enableCache) {
+    const pooledCacheLanes = (root.pooledCacheLanes! &= remainingLanes);
+    if (pooledCacheLanes === NoLanes) {
+      // None of the remaining work relies on the cache pool. Clear it so
+      // subsequent requests get a new cache.
+      root.pooledCache = null;
+    }
+  }
+
+  const entanglements = root.entanglements;
+  const eventTimes = root.eventTimes;
+  const expirationTimes = root.expirationTimes;
+
+  // Clear the lanes that no longer have pending work
+  let lanes = noLongerPendingLanes;
+  while (lanes > 0) {
+    const index = pickArbitraryLaneIndex(lanes);
+    const lane = 1 << index;
+
+    entanglements[index] = NoLanes;
+    eventTimes[index] = NoTimestamp;
+    expirationTimes[index] = NoTimestamp;
+
+    lanes &= ~lane;
+  }
+}
+
 export function movePendingFibersToMemoized(root: FiberRoot, lanes: Lanes) {
   if (!enableUpdaterTracking) {
     return;
@@ -631,3 +673,43 @@ export function getLanesToRetrySynchronouslyOnError(root: FiberRoot): Lanes {
   return NoLanes;
 }
 
+export function getLabelForLane(lane: Lane): string | void {
+  if (enableSchedulingProfiler) {
+    if (lane & SyncLane) {
+      return 'Sync';
+    }
+    if (lane & InputContinuousHydrationLane) {
+      return 'InputContinuousHydration';
+    }
+    if (lane & InputContinuousLane) {
+      return 'InputContinuous';
+    }
+    if (lane & DefaultHydrationLane) {
+      return 'DefaultHydration';
+    }
+    if (lane & DefaultLane) {
+      return 'Default';
+    }
+    if (lane & TransitionHydrationLane) {
+      return 'TransitionHydration';
+    }
+    if (lane & TransitionLanes) {
+      return 'Transition';
+    }
+    if (lane & RetryLanes) {
+      return 'Retry';
+    }
+    if (lane & SelectiveHydrationLane) {
+      return 'SelectiveHydration';
+    }
+    if (lane & IdleHydrationLane) {
+      return 'IdleHydration';
+    }
+    if (lane & IdleLane) {
+      return 'Idle';
+    }
+    if (lane & OffscreenLane) {
+      return 'Offscreen';
+    }
+  }
+}

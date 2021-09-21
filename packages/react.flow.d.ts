@@ -13,6 +13,10 @@
  | React$Portal
  | Iterable<React$Node | undefined>;
 
+declare class React$AbstractComponent<A, B>{}
+
+type empty = any
+
  type React$ElementType = string | React$AbstractComponent<empty, mixed>;
 
  declare type React$Element<ElementType extends React$ElementType> = {

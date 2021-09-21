@@ -64,6 +64,26 @@ function log(...logArgs: any[]): void {
 const REACT_LOGO_STYLE =
   'background-color: #20232a; color: #61dafb; padding: 0 2px;';
 
+export function logCommitStarted(lanes: Lanes): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      group(
+        `%c⚛️%c commit%c (${formatLanes(lanes)})`,
+        REACT_LOGO_STYLE,
+        '',
+        'font-weight: normal;',
+      );
+    }
+  }
+}
+
+export function logCommitStopped(): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      groupEnd();
+    }
+  }
+}
 
 export function logPassiveEffectsStarted(lanes: Lanes): void {
   if (__DEV__) {
@@ -98,7 +118,6 @@ export function logRenderStarted(lanes: Lanes): void {
     }
   }
 }
-
 
 
 export function logComponentSuspended(
@@ -141,8 +160,28 @@ export function logComponentSuspended(
 }
 
 
-
 export function logRenderStopped(): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      groupEnd();
+    }
+  }
+}
+
+export function logLayoutEffectsStarted(lanes: Lanes): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      group(
+        `%c⚛️%c layout effects%c (${formatLanes(lanes)})`,
+        REACT_LOGO_STYLE,
+        '',
+        'font-weight: normal;',
+      );
+    }
+  }
+}
+
+export function logLayoutEffectsStopped(): void {
   if (__DEV__) {
     if (enableDebugTracing) {
       groupEnd();

@@ -3,14 +3,14 @@ import { Fiber } from "./ReactInternalTypes";
 import { HostRoot, Profiler } from "./ReactWorkTags";
 import { now } from "./Scheduler";
 
-let commitTime: number = 0;
-let layoutEffectStartTime: number = -1;
-let profilerStartTime: number = -1;
-let passiveEffectStartTime: number = -1;
+let commitTime = 0;
+let layoutEffectStartTime = -1;
+let profilerStartTime = -1;
+let passiveEffectStartTime = -1;
 
 
-let currentUpdateIsNested: boolean = false;
-let nestedUpdateScheduled: boolean = false;
+let currentUpdateIsNested = false;
+let nestedUpdateScheduled = false;
 
 export function syncNestedUpdateFlag(): void {
   if (enableProfilerNestedUpdatePhase) {
@@ -137,4 +137,17 @@ export function stopProfilerTimerIfRunningAndRecordDelta(
     }
     profilerStartTime = -1;
   }
+}
+
+export function markNestedUpdateScheduled(): void {
+  if (enableProfilerNestedUpdatePhase) {
+    nestedUpdateScheduled = true;
+  }
+}
+
+export function recordCommitTime(): void {
+  if (!enableProfilerTimer) {
+    return;
+  }
+  commitTime = now();
 }

@@ -16,6 +16,7 @@ import {
   IdleEventPriority,
 } from '../../../react-reconciler/src/ReactEventPriorities';
 
+export let _enabled = true;
 
 export function getEventPriority(domEventName: DOMEventName) {
   switch (domEventName) {
@@ -122,4 +123,12 @@ export function getEventPriority(domEventName: DOMEventName) {
     default:
       return DefaultEventPriority;
   }
+}
+
+export function isEnabled() {
+  return _enabled;
+}
+
+export function setEnabled(enabled?: boolean | null) {
+  _enabled = !!enabled;
 }
