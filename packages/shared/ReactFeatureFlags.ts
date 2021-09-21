@@ -45,6 +45,16 @@ export const enableLazyElements = true;
 
 export const warnAboutStringRefs = false;
 
+export const disableInputAttributeSyncing = false;
+
+export const disableTextareaChildren = false;
+
+export const enableTrustedTypesIntegration = false;
+
+export const enableFilterEmptyStringAttributesDOM = false;
+
+export const disableJavaScriptURLs = false;
+
 
 /**
  * React 18的功能，开启后，react将有意的调用两次effects, mount -> unmount -> mount。用于检查effect是否有问题

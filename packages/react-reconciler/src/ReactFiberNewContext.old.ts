@@ -7,7 +7,7 @@ import { Lanes, includesSomeLane, NoLanes, mergeLanes, isSubsetOfLanes, NoTimest
 import { markWorkInProgressReceivedUpdate } from "./ReactFiberBeginWork.old";
 import invariant from "../../shared/invariant";
 import { DidPropagateContext, NeedsPropagation, NoFlags } from "./ReactFiberFlags";
-import { createCursor, push, StackCursor } from "./ReactFiberStack.old";
+import { createCursor, pop, push, StackCursor } from "./ReactFiberStack.old";
 import { ClassComponent, ContextProvider, DehydratedFragment } from "./ReactWorkTags";
 import { createUpdate, ForceUpdate, SharedQueue } from "./ReactUpdateQueue.old";
 
@@ -184,6 +184,19 @@ export function pushProvider<T>(
       }
       context._currentRenderer2 = rendererSigil;
     }
+  }
+}
+
+export function popProvider(
+  context: ReactContext<any>,
+  providerFiber: Fiber,
+): void {
+  const currentValue = valueCursor.current;
+  pop(valueCursor, providerFiber);
+  if (isPrimaryRenderer) {
+    context._currentValue = currentValue;
+  } else {
+    context._currentValue2 = currentValue;
   }
 }
 

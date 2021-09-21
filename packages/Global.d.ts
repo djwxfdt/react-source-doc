@@ -2,20 +2,22 @@
 // /**
 //  * 是否启用性能分析的标志，由打包工具设置的全局标记
 //  */
-declare var __VARIANT__:boolean | undefined
+declare let __VARIANT__:boolean | undefined
 
 /**
  * 试验性功能开启的标记，由打包工具设置的全局标记
  */
-declare var __EXPERIMENTAL__: boolean | undefined
+declare let __EXPERIMENTAL__: boolean | undefined
 
-declare var __PROFILE__: boolean | undefined
+declare let __PROFILE__: boolean | undefined
 
-declare var __DEV__: boolean | undefined
+declare let __DEV__: boolean | undefined
 
-declare var __REACT_DEVTOOLS_GLOBAL_HOOK__: boolean | undefined
+declare let __REACT_DEVTOOLS_GLOBAL_HOOK__: boolean | undefined
 
-declare var setImmediate: Function
+declare let MSApp: any
+
+declare let setImmediate: Function
 
 interface Navigator extends Navigator {
   scheduling?: {

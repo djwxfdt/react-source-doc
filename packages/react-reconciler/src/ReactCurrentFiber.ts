@@ -1,4 +1,5 @@
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
+import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { getStackByFiberInDevAndProd } from "./ReactFiberComponentStack";
 import { Fiber } from "./ReactInternalTypes";
 
@@ -9,6 +10,18 @@ export let current: Fiber | null = null;
 export let isRendering = false;
 
 
+export function getCurrentFiberOwnerNameInDevOrNull(): string | null {
+  if (__DEV__) {
+    if (current === null) {
+      return null;
+    }
+    const owner = current._debugOwner;
+    if (owner !== null && typeof owner !== 'undefined') {
+      return getComponentNameFromFiber(owner);
+    }
+  }
+  return null;
+}
 
 function getCurrentFiberStackInDev(): string {
   if (__DEV__) {

@@ -209,7 +209,7 @@ function mapChildren(
 function forEachChildren(
   children: ReactNodeList | undefined,
   forEachFunc: ForEachFunc,
-  forEachContext: mixed,
+  forEachContext?: mixed,
 ): void {
   mapChildren(
     children,

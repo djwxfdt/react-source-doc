@@ -1,14 +1,18 @@
 import { DefaultEventPriority } from "../../../react-reconciler/src/ReactEventPriorities";
 import { FiberRoot } from "../../../react-reconciler/src/ReactInternalTypes";
 import { enableSuspenseServerRenderer } from "../../../shared/ReactFeatureFlags";
+import { REACT_OPAQUE_ID_TYPE } from "../../../shared/ReactSymbols";
 import { DOMEventName } from "../events/DOMEventNames";
 import { getEventPriority } from "../events/ReactDOMEventListener";
 import { getChildNamespace } from "../shared/DOMNamespaces";
 import { COMMENT_NODE, DOCUMENT_FRAGMENT_NODE, DOCUMENT_NODE, ELEMENT_NODE, TEXT_NODE } from "../shared/HTMLNodeType";
-import { warnForInsertedHydratedElement, warnForInsertedHydratedText } from "./ReactDOMComponentTree";
-import { updatedAncestorInfo } from "./validateDOMNesting";
+import { createElement, diffHydratedProperties, diffProperties, setInitialProperties } from "./ReactDOMComponent";
+import { precacheFiberNode, updateFiberProps, warnForInsertedHydratedElement, warnForInsertedHydratedText } from "./ReactDOMComponentTree";
+import { updatedAncestorInfo, validateDOMNesting } from "./validateDOMNesting";
 
 export {detachDeletedInstance} from './ReactDOMComponentTree';
+
+export type Type = string;
 
 export type Props = {
   autoFocus?: boolean,
@@ -66,6 +70,21 @@ export type HostContext = HostContextDev | HostContextProd;
 export type HydratableInstance = Instance | TextInstance | SuspenseInstance;
 
 export type PublicInstance = Element | Text;
+
+export const supportsMutation = true;
+
+export const supportsPersistence = false;
+
+function shouldAutoFocusHostComponent(type: string, props: Props): boolean {
+  switch (type) {
+    case 'button':
+    case 'input':
+    case 'select':
+    case 'textarea':
+      return !!props.autoFocus;
+  }
+  return false;
+}
 
 
 export function getPublicInstance(instance: Instance): any {
@@ -403,5 +422,166 @@ export function shouldSetTextContent(type: string, props: Props): boolean {
     (typeof props.dangerouslySetInnerHTML === 'object' &&
       props.dangerouslySetInnerHTML !== null &&
       props.dangerouslySetInnerHTML.__html != null)
+  );
+}
+
+export function shouldDeleteUnhydratedTailInstances(
+  parentType: string,
+): boolean {
+  return parentType !== 'head' && parentType !== 'body';
+}
+
+export function getNextHydratableInstanceAfterSuspenseInstance(
+  suspenseInstance: SuspenseInstance,
+): null | HydratableInstance {
+  let node = suspenseInstance.nextSibling;
+  // Skip past all nodes within this suspense boundary.
+  // There might be nested nodes so we need to keep track of how
+  // deep we are and only break out when we're back on top.
+  let depth = 0;
+  while (node) {
+    if (node.nodeType === COMMENT_NODE) {
+      const data = ((node as any).data as string);
+      if (data === SUSPENSE_END_DATA) {
+        if (depth === 0) {
+          return getNextHydratableSibling((node as any));
+        } else {
+          depth--;
+        }
+      } else if (
+        data === SUSPENSE_START_DATA ||
+        data === SUSPENSE_FALLBACK_START_DATA ||
+        data === SUSPENSE_PENDING_START_DATA
+      ) {
+        depth++;
+      }
+    }
+    node = node.nextSibling;
+  }
+  // TODO: Warn, we didn't find the end comment boundary.
+  return null;
+}
+
+export function prepareUpdate(
+  domElement: Instance,
+  type: string,
+  oldProps: Props,
+  newProps: Props,
+  rootContainerInstance: Container,
+  hostContext: HostContext,
+): null | Array<mixed> {
+  if (__DEV__) {
+    const hostContextDev = ((hostContext as any) as HostContextDev);
+    if (
+      typeof newProps.children !== typeof oldProps.children &&
+      (typeof newProps.children === 'string' ||
+        typeof newProps.children === 'number')
+    ) {
+      const string = '' + newProps.children;
+      const ownAncestorInfo = updatedAncestorInfo(
+        hostContextDev.ancestorInfo,
+        type,
+      );
+      validateDOMNesting(null, string, ownAncestorInfo);
+    }
+  }
+  return diffProperties(
+    domElement,
+    type,
+    oldProps,
+    newProps,
+    rootContainerInstance,
+  );
+}
+
+export function hydrateInstance(
+  instance: Instance,
+  type: string,
+  props: Props,
+  rootContainerInstance: Container,
+  hostContext: HostContext,
+  internalInstanceHandle: any,
+): null | Array<mixed> {
+  precacheFiberNode(internalInstanceHandle, instance);
+  // TODO: Possibly defer this until the commit phase where all the events
+  // get attached.
+  updateFiberProps(instance, props);
+  let parentNamespace: string;
+  if (__DEV__) {
+    const hostContextDev = ((hostContext as any) as HostContextDev);
+    parentNamespace = hostContextDev.namespace;
+  } else {
+    parentNamespace = ((hostContext as any) as HostContextProd);
+  }
+  return diffHydratedProperties(
+    instance,
+    type,
+    props,
+    parentNamespace,
+    rootContainerInstance,
+  );
+}
+
+export function createInstance(
+  type: string,
+  props: Props,
+  rootContainerInstance: Container,
+  hostContext: HostContext,
+  internalInstanceHandle: any,
+): Instance {
+  let parentNamespace: string;
+  if (__DEV__) {
+    // TODO: take namespace into account when validating.
+    const hostContextDev = ((hostContext as any) as HostContextDev);
+    validateDOMNesting(type, null, hostContextDev.ancestorInfo);
+    if (
+      typeof props.children === 'string' ||
+      typeof props.children === 'number'
+    ) {
+      const string = '' + props.children;
+      const ownAncestorInfo = updatedAncestorInfo(
+        hostContextDev.ancestorInfo,
+        type,
+      );
+      validateDOMNesting(null, string, ownAncestorInfo);
+    }
+    parentNamespace = hostContextDev.namespace;
+  } else {
+    parentNamespace = ((hostContext as any) as HostContextProd);
+  }
+  const domElement: Instance = createElement(
+    type,
+    props,
+    rootContainerInstance,
+    parentNamespace,
+  );
+  precacheFiberNode(internalInstanceHandle, domElement);
+  updateFiberProps(domElement, props);
+  return domElement;
+}
+
+export function appendInitialChild(
+  parentInstance: Instance,
+  child: Instance | TextInstance,
+): void {
+  parentInstance.appendChild(child);
+}
+
+export function finalizeInitialChildren(
+  domElement: Instance,
+  type: string,
+  props: Props,
+  rootContainerInstance: Container,
+  hostContext: HostContext,
+): boolean {
+  setInitialProperties(domElement, type, props, rootContainerInstance);
+  return shouldAutoFocusHostComponent(type, props);
+}
+
+export function isOpaqueHydratingObject(value: mixed): boolean {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    value.$$typeof === REACT_OPAQUE_ID_TYPE
   );
 }

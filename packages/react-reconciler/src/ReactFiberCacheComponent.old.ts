@@ -1,7 +1,8 @@
 import { enableCache } from "../../shared/ReactFeatureFlags";
 import { REACT_CONTEXT_TYPE } from "../../shared/ReactSymbols";
 import { ReactContext } from "../../shared/ReactTypes";
-import { pushProvider } from "./ReactFiberNewContext.old";
+import { Lanes } from "./ReactFiberLane.old";
+import { popProvider, pushProvider } from "./ReactFiberNewContext.old";
 import { Fiber, FiberRoot } from "./ReactInternalTypes";
 
 export type Cache = Map<() => mixed, mixed>;
@@ -28,6 +29,15 @@ export function pushCacheProvider(workInProgress: Fiber, cache: Cache) {
   }
   pushProvider(workInProgress, CacheContext, cache);
 }
+
+
+export function popCacheProvider(workInProgress: Fiber, cache: Cache) {
+  if (!enableCache) {
+    return;
+  }
+  popProvider(CacheContext, workInProgress);
+}
+
 export function pushRootCachePool(root: FiberRoot) {
   if (!enableCache) {
     return;
@@ -37,4 +47,19 @@ export function pushRootCachePool(root: FiberRoot) {
   // initialize it the first type it's requested. However, we only mutate
   // the root itself during the complete/unwind phase of the HostRoot.
   pooledCache = root.pooledCache as any;
+}
+
+export function popRootCachePool(root: FiberRoot, renderLanes: Lanes) {
+  if (!enableCache) {
+    return;
+  }
+  // The `pooledCache` variable points to the cache that was used for new
+  // cache boundaries during this render, if any. Stash it on the root so that
+  // parallel transitions may share the same cache. We will clear this field
+  // once all the transitions that depend on it (which we track with
+  // `pooledCacheLanes`) have committed.
+  root.pooledCache = pooledCache;
+  if (pooledCache !== null) {
+    root.pooledCacheLanes! |= renderLanes;
+  }
 }

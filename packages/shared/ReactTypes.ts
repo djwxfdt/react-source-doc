@@ -50,6 +50,20 @@ export type RefObject = {
   current: any,
 };
 
+
+export type ReactScopeQuery = (
+  type: string,
+  props: {[key: string]: mixed},
+  instance: mixed,
+) => boolean;
+
+export type ReactScopeInstance = {
+  DO_NOT_USE_queryAllNodes(v: ReactScopeQuery): null | Array<Object>,
+  DO_NOT_USE_queryFirstNode(v: ReactScopeQuery): null | Object,
+  containsNode(v: Object): boolean,
+  getChildContextValues: <T>(context: ReactContext<T>) => Array<T>,
+};
+
 export type MutableSourceVersion = $NonMaybeType<mixed>;
 
 export type MutableSourceGetVersionFn = (

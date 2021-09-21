@@ -38,6 +38,18 @@ export function pushHostContainer(fiber: Fiber, nextRootInstance: Container) {
   push(contextStackCursor, nextRootContext, fiber);
 }
 
+export function popHostContainer(fiber: Fiber) {
+  pop(contextStackCursor, fiber);
+  pop(contextFiberStackCursor, fiber);
+  pop(rootInstanceStackCursor, fiber);
+}
+
+export function getHostContext(): HostContext {
+  const context = requiredContext(contextStackCursor.current);
+  return context;
+}
+
+
 function requiredContext<Value>(c: Value | NoContextT): Value {
   invariant(
     c !== NO_CONTEXT,
@@ -74,4 +86,9 @@ export function popHostContext(fiber: Fiber): void {
 
   pop(contextStackCursor, fiber);
   pop(contextFiberStackCursor, fiber);
+}
+
+export function getRootHostContainer(): Container {
+  const rootInstance = requiredContext(rootInstanceStackCursor.current);
+  return rootInstance;
 }

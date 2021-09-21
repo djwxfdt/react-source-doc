@@ -1,22 +1,114 @@
 import invariant from "../../shared/invariant";
-import { enableCache, enableProfilerTimer, enableSuspenseCallback, enableScopeAPI } from "../../shared/ReactFeatureFlags";
+import { enableCache, enableProfilerTimer, enableSuspenseCallback, enableScopeAPI, enableSuspenseLayoutEffectSemantics } from "../../shared/ReactFeatureFlags";
 import { ReactContext } from "../../shared/ReactTypes";
 import { SpawnedCachePool } from "./ReactFiberCacheComponent.new";
-import { Snapshot, DidCapture, NoFlags, Update, Visibility, Placement, StaticMask } from "./ReactFiberFlags";
+import { Snapshot, DidCapture, NoFlags, Update, Visibility, Placement, StaticMask, Ref, RefStatic } from "./ReactFiberFlags";
 import { Lanes, SomeRetryLane, OffscreenLane, includesSomeLane, Lane, mergeLanes, NoLanes } from "./ReactFiberLane.old";
 import { OffscreenState } from "./ReactFiberOffscreenComponent";
 import { subtreeRenderLanes } from "./ReactFiberWorkLoop.old";
-import { Fiber, Wakeable } from "./ReactInternalTypes";
+import { Fiber, FiberRoot, Wakeable } from "./ReactInternalTypes";
 import { ProfileMode, NoMode, ConcurrentMode } from "./ReactTypeOfMode";
 import { IndeterminateComponent, LazyComponent, SimpleMemoComponent, FunctionComponent, ForwardRef, Fragment, Mode, Profiler, ContextConsumer, MemoComponent, ClassComponent, HostRoot, HostComponent, HostText, SuspenseComponent, HostPortal, ContextProvider, IncompleteClassComponent, SuspenseListComponent, ScopeComponent, OffscreenComponent, LegacyHiddenComponent, CacheComponent } from "./ReactWorkTags";
 import { now } from "./Scheduler";
+import {Cache} from './ReactFiberCacheComponent.old'
+import {resetWorkInProgressVersions as resetMutableSourceWorkInProgressVersions} from './ReactMutableSource.old';
 
 import {
   isContextProvider as isLegacyContextProvider,
   popContext as popLegacyContext,
   popTopLevelContextObject as popTopLevelLegacyContextObject,
 } from './ReactFiberContext.old';
+import { getHostContext, getRootHostContainer, popHostContainer, popHostContext } from "./ReactFiberHostContext.old";
+import { popCacheProvider, popRootCachePool } from "./ReactFiberCacheComponent.old";
+import { popHydrationState, prepareToHydrateHostInstance } from "./ReactFiberHydrationContext.old";
+import { Container, Instance, Props, Type, prepareUpdate, createInstance, appendInitialChild, finalizeInitialChildren } from "./ReactFiberHostConfig";
 
+let updateHostContainer: (arg0: Fiber | null, arg1: Fiber) => void
+
+let updateHostComponent: (arg0: Fiber, arg1: Fiber, arg2: any, arg3: any, arg4: Container) => void;
+
+let appendAllChildren: (arg0: Element, arg1: Fiber, arg2: boolean, arg3: boolean) => void;
+
+updateHostContainer = function(current: null | Fiber, workInProgress: Fiber) {
+  // Noop
+};
+
+appendAllChildren = function(
+  parent: Instance,
+  workInProgress: Fiber,
+  needsVisibilityToggle: boolean,
+  isHidden: boolean,
+) {
+  // We only have the top Fiber that was created but we need recurse down its
+  // children to find all the terminal nodes.
+  let node = workInProgress.child;
+  while (node !== null) {
+    if (node.tag === HostComponent || node.tag === HostText) {
+      appendInitialChild(parent, node.stateNode);
+    } else if (node.tag === HostPortal) {
+      // If we have a portal child, then we don't want to traverse
+      // down its children. Instead, we'll get insertions from each child in
+      // the portal directly.
+    } else if (node.child !== null) {
+      node.child.return = node;
+      node = node.child;
+      continue;
+    }
+    if (node === workInProgress) {
+      return;
+    }
+    while (node.sibling === null) {
+      if (node.return === null || node.return === workInProgress) {
+        return;
+      }
+      node = node.return;
+    }
+    node.sibling.return = node.return;
+    node = node.sibling;
+  }
+};
+
+updateHostComponent = function(
+  current: Fiber,
+  workInProgress: Fiber,
+  type: Type,
+  newProps: Props,
+  rootContainerInstance: Container,
+) {
+  // If we have an alternate, that means this is an update and we need to
+  // schedule a side-effect to do the updates.
+  const oldProps = current.memoizedProps;
+  if (oldProps === newProps) {
+    // In mutation mode, this is sufficient for a bailout because
+    // we won't touch this node even if children changed.
+    return;
+  }
+
+  // If we get updated because one of our children updated, we don't
+  // have newProps so we'll have to reuse them.
+  // TODO: Split the update API as separate for the props vs. children.
+  // Even better would be if children weren't special cased at all tho.
+  const instance: Instance = workInProgress.stateNode;
+  const currentHostContext = getHostContext();
+  // TODO: Experiencing an error where oldProps is null. Suggests a host
+  // component is hitting the resume path. Figure out why. Possibly
+  // related to `hidden`.
+  const updatePayload = prepareUpdate(
+    instance,
+    type,
+    oldProps,
+    newProps,
+    rootContainerInstance,
+    currentHostContext,
+  );
+  // TODO: Type this specific to this type of component.
+  workInProgress.updateQueue = (updatePayload as any);
+  // If the update payload indicates that there is a change or if there
+  // is a new ref we mark this as an update. All the work is done in commitWork.
+  if (updatePayload) {
+    markUpdate(workInProgress);
+  }
+};
 /**
  * 设置当前fiber的childLanes和subtreeFlags
  */
@@ -140,6 +232,19 @@ function bubbleProperties(completedWork: Fiber) {
   return didBailout;
 }
 
+function markUpdate(workInProgress: Fiber) {
+  // Tag the fiber with an update effect. This turns a Placement into
+  // a PlacementAndUpdate.
+  workInProgress.flags |= Update;
+}
+
+function markRef(workInProgress: Fiber) {
+  workInProgress.flags |= Ref;
+  if (enableSuspenseLayoutEffectSemantics) {
+    workInProgress.flags |= RefStatic;
+  }
+}
+
 export function completeWork(
   current: Fiber | null,
   workInProgress: Fiber,
@@ -168,126 +273,126 @@ export function completeWork(
       bubbleProperties(workInProgress);
       return null;
     }
-    // case HostRoot: {
-    //   const fiberRoot = (workInProgress.stateNode: FiberRoot);
-    //   if (enableCache) {
-    //     popRootCachePool(fiberRoot, renderLanes);
+    case HostRoot: {
+      const fiberRoot = (workInProgress.stateNode as FiberRoot);
+      if (enableCache) {
+        popRootCachePool(fiberRoot, renderLanes);
 
-    //     const cache: Cache = workInProgress.memoizedState.cache;
-    //     popCacheProvider(workInProgress, cache);
-    //   }
-    //   popHostContainer(workInProgress);
-    //   popTopLevelLegacyContextObject(workInProgress);
-    //   resetMutableSourceWorkInProgressVersions();
-    //   if (fiberRoot.pendingContext) {
-    //     fiberRoot.context = fiberRoot.pendingContext;
-    //     fiberRoot.pendingContext = null;
-    //   }
-    //   if (current === null || current.child === null) {
-    //     // If we hydrated, pop so that we can delete any remaining children
-    //     // that weren't hydrated.
-    //     const wasHydrated = popHydrationState(workInProgress);
-    //     if (wasHydrated) {
-    //       // If we hydrated, then we'll need to schedule an update for
-    //       // the commit side-effects on the root.
-    //       markUpdate(workInProgress);
-    //     } else if (!fiberRoot.hydrate) {
-    //       // Schedule an effect to clear this container at the start of the next commit.
-    //       // This handles the case of React rendering into a container with previous children.
-    //       // It's also safe to do for updates too, because current.child would only be null
-    //       // if the previous render was null (so the the container would already be empty).
-    //       workInProgress.flags |= Snapshot;
-    //     }
-    //   }
-    //   updateHostContainer(current, workInProgress);
-    //   bubbleProperties(workInProgress);
-    //   return null;
-    // }
-    // case HostComponent: {
-    //   popHostContext(workInProgress);
-    //   const rootContainerInstance = getRootHostContainer();
-    //   const type = workInProgress.type;
-    //   if (current !== null && workInProgress.stateNode != null) {
-    //     updateHostComponent(
-    //       current,
-    //       workInProgress,
-    //       type,
-    //       newProps,
-    //       rootContainerInstance,
-    //     );
+        const cache: Cache = workInProgress.memoizedState.cache;
+        popCacheProvider(workInProgress, cache);
+      }
+      popHostContainer(workInProgress);
+      popTopLevelLegacyContextObject(workInProgress);
+      resetMutableSourceWorkInProgressVersions();
+      if (fiberRoot.pendingContext) {
+        fiberRoot.context = fiberRoot.pendingContext;
+        fiberRoot.pendingContext = null;
+      }
+      if (current === null || current.child === null) {
+        // If we hydrated, pop so that we can delete any remaining children
+        // that weren't hydrated.
+        const wasHydrated = popHydrationState(workInProgress);
+        if (wasHydrated) {
+          // If we hydrated, then we'll need to schedule an update for
+          // the commit side-effects on the root.
+          markUpdate(workInProgress);
+        } else if (!fiberRoot.hydrate) {
+          // Schedule an effect to clear this container at the start of the next commit.
+          // This handles the case of React rendering into a container with previous children.
+          // It's also safe to do for updates too, because current.child would only be null
+          // if the previous render was null (so the the container would already be empty).
+          workInProgress.flags |= Snapshot;
+        }
+      }
+      updateHostContainer(current, workInProgress);
+      bubbleProperties(workInProgress);
+      return null;
+    }
+    case HostComponent: {
+      popHostContext(workInProgress);
+      const rootContainerInstance = getRootHostContainer();
+      const type = workInProgress.type;
+      if (current !== null && workInProgress.stateNode != null) {
+        updateHostComponent(
+          current,
+          workInProgress,
+          type,
+          newProps,
+          rootContainerInstance,
+        );
 
-    //     if (current.ref !== workInProgress.ref) {
-    //       markRef(workInProgress);
-    //     }
-    //   } else {
-    //     if (!newProps) {
-    //       invariant(
-    //         workInProgress.stateNode !== null,
-    //         'We must have new props for new mounts. This error is likely ' +
-    //           'caused by a bug in React. Please file an issue.',
-    //       );
-    //       // This can happen when we abort work.
-    //       bubbleProperties(workInProgress);
-    //       return null;
-    //     }
+        if (current.ref !== workInProgress.ref) {
+          markRef(workInProgress);
+        }
+      } else {
+        if (!newProps) {
+          invariant(
+            workInProgress.stateNode !== null,
+            'We must have new props for new mounts. This error is likely ' +
+              'caused by a bug in React. Please file an issue.',
+          );
+          // This can happen when we abort work.
+          bubbleProperties(workInProgress);
+          return null;
+        }
 
-    //     const currentHostContext = getHostContext();
-    //     // TODO: Move createInstance to beginWork and keep it on a context
-    //     // "stack" as the parent. Then append children as we go in beginWork
-    //     // or completeWork depending on whether we want to add them top->down or
-    //     // bottom->up. Top->down is faster in IE11.
-    //     const wasHydrated = popHydrationState(workInProgress);
-    //     if (wasHydrated) {
-    //       // TODO: Move this and createInstance step into the beginPhase
-    //       // to consolidate.
-    //       if (
-    //         prepareToHydrateHostInstance(
-    //           workInProgress,
-    //           rootContainerInstance,
-    //           currentHostContext,
-    //         )
-    //       ) {
-    //         // If changes to the hydrated node need to be applied at the
-    //         // commit-phase we mark this as such.
-    //         markUpdate(workInProgress);
-    //       }
-    //     } else {
-    //       const instance = createInstance(
-    //         type,
-    //         newProps,
-    //         rootContainerInstance,
-    //         currentHostContext,
-    //         workInProgress,
-    //       );
+        const currentHostContext = getHostContext();
+        // TODO: Move createInstance to beginWork and keep it on a context
+        // "stack" as the parent. Then append children as we go in beginWork
+        // or completeWork depending on whether we want to add them top->down or
+        // bottom->up. Top->down is faster in IE11.
+        const wasHydrated = popHydrationState(workInProgress);
+        if (wasHydrated) {
+          // TODO: Move this and createInstance step into the beginPhase
+          // to consolidate.
+          if (
+            prepareToHydrateHostInstance(
+              workInProgress,
+              rootContainerInstance,
+              currentHostContext,
+            )
+          ) {
+            // If changes to the hydrated node need to be applied at the
+            // commit-phase we mark this as such.
+            markUpdate(workInProgress);
+          }
+        } else {
+          const instance = createInstance(
+            type,
+            newProps,
+            rootContainerInstance,
+            currentHostContext,
+            workInProgress,
+          );
 
-    //       appendAllChildren(instance, workInProgress, false, false);
+          appendAllChildren(instance, workInProgress, false, false);
 
-    //       workInProgress.stateNode = instance;
+          workInProgress.stateNode = instance;
 
-    //       // Certain renderers require commit-time effects for initial mount.
-    //       // (eg DOM renderer supports auto-focus for certain elements).
-    //       // Make sure such renderers get scheduled for later work.
-    //       if (
-    //         finalizeInitialChildren(
-    //           instance,
-    //           type,
-    //           newProps,
-    //           rootContainerInstance,
-    //           currentHostContext,
-    //         )
-    //       ) {
-    //         markUpdate(workInProgress);
-    //       }
-    //     }
+          // Certain renderers require commit-time effects for initial mount.
+          // (eg DOM renderer supports auto-focus for certain elements).
+          // Make sure such renderers get scheduled for later work.
+          if (
+            finalizeInitialChildren(
+              instance,
+              type,
+              newProps,
+              rootContainerInstance,
+              currentHostContext,
+            )
+          ) {
+            markUpdate(workInProgress);
+          }
+        }
 
-    //     if (workInProgress.ref !== null) {
-    //       // If there is a ref on a host node we need to schedule a callback
-    //       markRef(workInProgress);
-    //     }
-    //   }
-    //   bubbleProperties(workInProgress);
-    //   return null;
-    // }
+        if (workInProgress.ref !== null) {
+          // If there is a ref on a host node we need to schedule a callback
+          markRef(workInProgress);
+        }
+      }
+      bubbleProperties(workInProgress);
+      return null;
+    }
     // case HostText: {
     //   const newText = newProps;
     //   if (current && workInProgress.stateNode != null) {

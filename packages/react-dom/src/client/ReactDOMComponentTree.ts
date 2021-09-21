@@ -1,6 +1,7 @@
 import { Fiber } from "../../../react-reconciler/src/ReactInternalTypes";
 import { HostComponent, HostText, SuspenseComponent, HostRoot } from "../../../react-reconciler/src/ReactWorkTags";
-import { Container, Instance } from "./ReactDOMHostConfig";
+import { ReactScopeInstance } from "../../../shared/ReactTypes";
+import { Container, Instance, Props, SuspenseInstance, TextInstance } from "./ReactDOMHostConfig";
 
 let didWarnInvalidHydration = false;
 
@@ -92,4 +93,33 @@ export function warnForInsertedHydratedText(
       parentNode.nodeName.toLowerCase(),
     );
   }
+}
+
+export function precacheFiberNode(
+  hostInst: Fiber,
+  node: Instance | TextInstance | SuspenseInstance | ReactScopeInstance,
+): void {
+  (node as any)[internalInstanceKey] = hostInst;
+}
+
+export function updateFiberProps(
+  node: Instance | TextInstance | SuspenseInstance,
+  props: Props,
+): void {
+  (node as any)[internalPropsKey] = props;
+}
+
+
+export function getEventListenerSet(node: EventTarget): Set<string> {
+  let elementListenerSet = (node as any)[internalEventHandlersKey];
+  if (elementListenerSet === undefined) {
+    elementListenerSet = (node as any)[internalEventHandlersKey] = new Set();
+  }
+  return elementListenerSet;
+}
+
+export function getFiberCurrentPropsFromNode(
+  node: Instance | TextInstance | SuspenseInstance,
+): Props {
+  return (node as any)[internalPropsKey] || null;
 }
