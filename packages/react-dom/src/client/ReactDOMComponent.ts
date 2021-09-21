@@ -39,7 +39,7 @@ import {
 import { listenToNonDelegatedEvent, mediaEventTypes } from "./DOMPluginEventSystem";
 import { DOCUMENT_NODE } from "../shared/HTMLNodeType";
 import { enableTrustedTypesIntegration } from "../../../shared/ReactFeatureFlags";
-import { registrationNameDependencies } from "../events/EventRegistry";
+import { possibleRegistrationNames, registrationNameDependencies } from "../events/EventRegistry";
 import { getPropertyInfo, shouldIgnoreAttribute, shouldRemoveAttribute } from "../shared/DOMProperty";
 import { getValueForAttribute, getValueForProperty, setValueForStyles, validateShorthandPropertyCollisionInDev } from "./DOMPropertyOperations";
 import { canUseDOM } from "../../../shared/ExecutionEnvironment";
@@ -47,6 +47,10 @@ import possibleStandardNames from "../shared/possibleStandardNames";
 import { createDangerousStringForStyles, setValueForProperty } from "./CSSPropertyOperations";
 import setInnerHTML from "./setInnerHTML";
 import setTextContent from "./setTextContent";
+
+import {validateProperties as validateARIAProperties} from '../shared/ReactDOMInvalidARIAHook';
+import {validateProperties as validateInputProperties} from '../shared/ReactDOMNullInputValuePropHook';
+import {validateProperties as validateUnknownProperties} from '../shared/ReactDOMUnknownPropertyHook';
 
 let didWarnInvalidHydration = false;
 let didWarnScriptTags = false;
@@ -62,6 +66,9 @@ let warnForPropDifference: (propName: string, serverValue: mixed, clientValue: m
 let normalizeMarkupForTextOrAttribute: (markup: mixed) => string;
 
 let normalizeHTML: (parent: Element, html: string) => any
+
+let validatePropertiesInDevelopment: (arg0: string, arg1: Object) => void;
+
 
 if (__DEV__) {
   warnedUnknownTags = {
@@ -183,9 +190,16 @@ if (__DEV__) {
     }
   };
 
+  validatePropertiesInDevelopment = function(type, props) {
+    validateARIAProperties(type, props);
+    validateInputProperties(type, props);
+    validateUnknownProperties(type, props, {
+      registrationNameDependencies,
+      possibleRegistrationNames,
+    });
+  };
 }
 
-let validatePropertiesInDevelopment: (arg0: string, arg1: Object) => void;
 
 
 const DANGEROUSLY_SET_INNER_HTML = 'dangerouslySetInnerHTML';
@@ -292,7 +306,7 @@ export function diffProperties(
   rootContainerElement: Element | Document,
 ): null | Array<mixed> {
   if (__DEV__) {
-    // validatePropertiesInDevelopment(tag, nextRawProps);
+    validatePropertiesInDevelopment(tag, nextRawProps);
   }
 
   let updatePayload: null | Array<any> = null;
