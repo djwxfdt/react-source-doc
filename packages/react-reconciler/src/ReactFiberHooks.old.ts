@@ -3,9 +3,9 @@ import { enableDebugTracing, enableLazyContextPropagation, enableNewReconciler, 
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { checkIfWorkInProgressReceivedUpdate, markWorkInProgressReceivedUpdate } from "./ReactFiberBeginWork.old";
 import { Flags } from "./ReactFiberFlags";
-import { intersectLanes, isTransitionLane, Lane, Lanes, markRootEntangled, mergeLanes, NoLanes, removeLanes } from "./ReactFiberLane.old";
+import { intersectLanes, isSubsetOfLanes, isTransitionLane, Lane, Lanes, markRootEntangled, mergeLanes, NoLane, NoLanes, removeLanes } from "./ReactFiberLane.old";
 import { checkIfContextChanged, readContext } from "./ReactFiberNewContext.old";
-import { isInterleavedUpdate, requestEventTime, requestUpdateLane, scheduleUpdateOnFiber, warnIfNotCurrentlyActingEffectsInDEV, warnIfNotCurrentlyActingUpdatesInDEV } from "./ReactFiberWorkLoop.old";
+import { isInterleavedUpdate, markSkippedUpdateLanes, requestEventTime, requestUpdateLane, scheduleUpdateOnFiber, warnIfNotCurrentlyActingEffectsInDEV, warnIfNotCurrentlyActingUpdatesInDEV } from "./ReactFiberWorkLoop.old";
 import { HookFlags } from "./ReactHookEffectTags";
 import { Dispatcher, Fiber, HookType } from "./ReactInternalTypes";
 import { ConcurrentMode, DebugTracingMode, NoMode, StrictEffectsMode } from "./ReactTypeOfMode";
@@ -241,6 +241,161 @@ function dispatchAction<S, A>(
   }
 }
 
+function updateReducer<S, I, A>(
+  reducer: (s:S, a: A) => S,
+  initialArg: I,
+  init?: (i: I) => S,
+): [S, Dispatch<A>] {
+  const hook = updateWorkInProgressHook();
+  const queue = hook.queue!;
+  invariant(
+    queue !== null,
+    'Should have a queue. This is likely a bug in React. Please file an issue.',
+  );
+
+  queue.lastRenderedReducer = reducer;
+
+  const current: Hook = (currentHook as any);
+
+  // The last rebase update that is NOT part of the base state.
+  let baseQueue = current.baseQueue;
+
+  // The last pending update that hasn't been processed yet.
+  const pendingQueue = queue.pending;
+  if (pendingQueue !== null) {
+    // We have new updates that haven't been processed yet.
+    // We'll add them to the base queue.
+    if (baseQueue !== null) {
+      // Merge the pending queue and the base queue.
+      const baseFirst = baseQueue.next;
+      const pendingFirst = pendingQueue.next;
+      baseQueue.next = pendingFirst;
+      pendingQueue.next = baseFirst;
+    }
+    if (__DEV__) {
+      if (current.baseQueue !== baseQueue) {
+        // Internal invariant that should never happen, but feasibly could in
+        // the future if we implement resuming, or some form of that.
+        console.error(
+          'Internal error: Expected work-in-progress queue to be a clone. ' +
+            'This is a bug in React.',
+        );
+      }
+    }
+    current.baseQueue = baseQueue = pendingQueue;
+    queue.pending = null;
+  }
+
+  if (baseQueue !== null) {
+    // We have a queue to process.
+    const first = baseQueue.next;
+    let newState = current.baseState;
+
+    let newBaseState = null;
+    let newBaseQueueFirst = null;
+    let newBaseQueueLast: any = null;
+    let update = first;
+    do {
+      const updateLane = update.lane;
+      if (!isSubsetOfLanes(renderLanes, updateLane)) {
+        // Priority is insufficient. Skip this update. If this is the first
+        // skipped update, the previous update/state is the new base
+        // update/state.
+        const clone: Update<S, A> = {
+          lane: updateLane,
+          action: update.action,
+          eagerReducer: update.eagerReducer,
+          eagerState: update.eagerState,
+          next: (null as any),
+        };
+        if (newBaseQueueLast === null) {
+          newBaseQueueFirst = newBaseQueueLast = clone;
+          newBaseState = newState;
+        } else {
+          newBaseQueueLast = newBaseQueueLast.next = clone;
+        }
+        // Update the remaining priority in the queue.
+        // TODO: Don't need to accumulate this. Instead, we can remove
+        // renderLanes from the original lanes.
+        currentlyRenderingFiber.lanes = mergeLanes(
+          currentlyRenderingFiber.lanes,
+          updateLane,
+        );
+        markSkippedUpdateLanes(updateLane);
+      } else {
+        // This update does have sufficient priority.
+
+        if (newBaseQueueLast !== null) {
+          const clone: Update<S, A> = {
+            // This update is going to be committed so we never want uncommit
+            // it. Using NoLane works because 0 is a subset of all bitmasks, so
+            // this will never be skipped by the check above.
+            lane: NoLane,
+            action: update.action,
+            eagerReducer: update.eagerReducer,
+            eagerState: update.eagerState,
+            next: (null as any),
+          };
+          newBaseQueueLast = newBaseQueueLast.next = clone;
+        }
+
+        // Process this update.
+        if (update.eagerReducer === reducer) {
+          // If this update was processed eagerly, and its reducer matches the
+          // current reducer, we can use the eagerly computed state.
+          newState = ((update.eagerState as any) as S);
+        } else {
+          const action = update.action;
+          newState = reducer(newState, action);
+        }
+      }
+      update = update.next;
+    } while (update !== null && update !== first);
+
+    if (newBaseQueueLast === null) {
+      newBaseState = newState;
+    } else {
+      newBaseQueueLast.next = (newBaseQueueFirst as any);
+    }
+
+    // Mark that the fiber performed work, but only if the new state is
+    // different from the current state.
+    if (!objectIs(newState, hook.memoizedState)) {
+      markWorkInProgressReceivedUpdate();
+    }
+
+    hook.memoizedState = newState;
+    hook.baseState = newBaseState;
+    hook.baseQueue = newBaseQueueLast;
+
+    queue.lastRenderedState = newState;
+  }
+
+  // Interleaved updates are stored on a separate queue. We aren't going to
+  // process them during this render, but we do need to track which lanes
+  // are remaining.
+  const lastInterleaved = queue.interleaved;
+  if (lastInterleaved !== null) {
+    let interleaved = lastInterleaved;
+    do {
+      const interleavedLane = interleaved.lane;
+      currentlyRenderingFiber.lanes = mergeLanes(
+        currentlyRenderingFiber.lanes,
+        interleavedLane,
+      );
+      markSkippedUpdateLanes(interleavedLane);
+      interleaved = ((interleaved as  any).next as Update<S, A>);
+    } while (interleaved !== lastInterleaved);
+  } else if (baseQueue === null) {
+    // `queue.lanes` is used for entangling transitions. We can set it back to
+    // zero once the queue is empty.
+    queue.lanes = NoLanes;
+  }
+
+  const dispatch: Dispatch<A> = (queue.dispatch as any);
+  return [hook.memoizedState, dispatch];
+}
+
 function mountState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
@@ -268,6 +423,25 @@ function mountState<S>(
   return [hook.memoizedState, dispatch];
 }
 
+function updateState<S>(
+  initialState: (() => S) | S,
+): [S, Dispatch<BasicStateAction<S>>] {
+  return updateReducer(basicStateReducer, (initialState as any));
+}
+
+function updateHookTypesDev() {
+  if (__DEV__) {
+    const hookName = ((currentHookNameInDev) as  HookType);
+
+    if (hookTypesDev !== null) {
+      hookTypesUpdateIndexDev++;
+      if (hookTypesDev[hookTypesUpdateIndexDev] !== hookName) {
+        console.warn('updateHookTypesDev', hookName);
+      }
+    }
+  }
+}
+
 if (__DEV__) {
   HooksDispatcherOnMountInDEV = {
     readContext<T>(context: ReactContext<T>): T {
@@ -288,6 +462,21 @@ if (__DEV__) {
     },
   } as any;
 
+  HooksDispatcherOnUpdateInDEV = {
+    useState<S>(
+      initialState: (() => S) | S,
+    ): [S, Dispatch<BasicStateAction<S>>] {
+      currentHookNameInDev = 'useState';
+      updateHookTypesDev();
+      const prevDispatcher = ReactCurrentDispatcher.current;
+      ReactCurrentDispatcher.current = InvalidNestedHooksDispatcherOnUpdateInDEV;
+      try {
+        return updateState(initialState);
+      } finally {
+        ReactCurrentDispatcher.current = prevDispatcher;
+      }
+    },
+  } as any
 }
 
 function mountWorkInProgressHook(): Hook {
@@ -777,3 +966,63 @@ export function bailoutHooks(
   current.lanes = removeLanes(current.lanes, lanes);
 }
 
+function updateWorkInProgressHook(): Hook {
+  // This function is used both for updates and for re-renders triggered by a
+  // render phase update. It assumes there is either a current hook we can
+  // clone, or a work-in-progress hook from a previous render pass that we can
+  // use as a base. When we reach the end of the base list, we must switch to
+  // the dispatcher used for mounts.
+  let nextCurrentHook: null | Hook;
+  if (currentHook === null) {
+    const current = currentlyRenderingFiber.alternate;
+    if (current !== null) {
+      nextCurrentHook = current.memoizedState;
+    } else {
+      nextCurrentHook = null;
+    }
+  } else {
+    nextCurrentHook = currentHook.next;
+  }
+
+  let nextWorkInProgressHook: null | Hook;
+  if (workInProgressHook === null) {
+    nextWorkInProgressHook = currentlyRenderingFiber.memoizedState;
+  } else {
+    nextWorkInProgressHook = workInProgressHook.next;
+  }
+
+  if (nextWorkInProgressHook !== null) {
+    // There's already a work-in-progress. Reuse it.
+    workInProgressHook = nextWorkInProgressHook;
+    nextWorkInProgressHook = workInProgressHook.next;
+
+    currentHook = nextCurrentHook;
+  } else {
+    // Clone from the current hook.
+
+    invariant(
+      nextCurrentHook !== null,
+      'Rendered more hooks than during the previous render.',
+    );
+    currentHook = nextCurrentHook!;
+
+    const newHook: Hook = {
+      memoizedState: currentHook.memoizedState,
+
+      baseState: currentHook.baseState,
+      baseQueue: currentHook.baseQueue,
+      queue: currentHook.queue,
+
+      next: null,
+    };
+
+    if (workInProgressHook === null) {
+      // This is the first hook in the list.
+      currentlyRenderingFiber.memoizedState = workInProgressHook = newHook;
+    } else {
+      // Append to the end of the list.
+      workInProgressHook = workInProgressHook.next = newHook;
+    }
+  }
+  return workInProgressHook;
+}
