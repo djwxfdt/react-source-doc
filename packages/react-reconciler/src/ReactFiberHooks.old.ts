@@ -3,7 +3,7 @@ import { enableDebugTracing, enableLazyContextPropagation, enableNewReconciler, 
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { checkIfWorkInProgressReceivedUpdate, markWorkInProgressReceivedUpdate } from "./ReactFiberBeginWork.old";
 import { Flags } from "./ReactFiberFlags";
-import { intersectLanes, isTransitionLane, Lane, Lanes, markRootEntangled, mergeLanes, NoLanes } from "./ReactFiberLane.old";
+import { intersectLanes, isTransitionLane, Lane, Lanes, markRootEntangled, mergeLanes, NoLanes, removeLanes } from "./ReactFiberLane.old";
 import { checkIfContextChanged, readContext } from "./ReactFiberNewContext.old";
 import { isInterleavedUpdate, requestEventTime, requestUpdateLane, scheduleUpdateOnFiber, warnIfNotCurrentlyActingEffectsInDEV, warnIfNotCurrentlyActingUpdatesInDEV } from "./ReactFiberWorkLoop.old";
 import { HookFlags } from "./ReactHookEffectTags";
@@ -751,3 +751,29 @@ export function renderWithHooks<Props, SecondArg>(
 
   return children;
 }
+
+export function bailoutHooks(
+  current: Fiber,
+  workInProgress: Fiber,
+  lanes: Lanes,
+) {
+  workInProgress.updateQueue = current.updateQueue;
+  // TODO: Don't need to reset the flags here, because they're reset in the
+  // complete phase (bubbleProperties).
+  if (
+    __DEV__ &&
+    enableStrictEffects &&
+    (workInProgress.mode & StrictEffectsMode) !== NoMode
+  ) {
+    workInProgress.flags &= ~(
+      MountPassiveDevEffect |
+      MountLayoutDevEffect |
+      PassiveEffect |
+      UpdateEffect
+    );
+  } else {
+    workInProgress.flags &= ~(PassiveEffect | UpdateEffect);
+  }
+  current.lanes = removeLanes(current.lanes, lanes);
+}
+

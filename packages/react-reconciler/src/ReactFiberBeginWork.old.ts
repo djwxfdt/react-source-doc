@@ -20,7 +20,7 @@ import { checkIfContextChanged, prepareToReadContext, propagateContextChange } f
 import { markComponentRenderStarted, markComponentRenderStopped } from "./SchedulingProfiler";
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { setIsRendering } from "./ReactCurrentFiber";
-import { renderWithHooks } from "./ReactFiberHooks.old";
+import { bailoutHooks, renderWithHooks } from "./ReactFiberHooks.old";
 import { ReactStrictModeWarnings } from "./ReactStrictModeWarnings.old";
 import { StrictLegacyMode } from "./ReactTypeOfMode";
 import { disableLogs, reenableLogs } from "../../shared/ConsolePatchingDev";
@@ -34,6 +34,7 @@ import { markSkippedUpdateLanes } from "./ReactFiberWorkLoop.old";
 import { shouldSetTextContent, supportsHydration } from "./ReactFiberHostConfig";
 import { MutableSource } from "../../shared/ReactTypes";
 import { setWorkInProgressVersion } from "./ReactMutableSource.old";
+import { resolveDefaultProps } from "./ReactFiberLazyComponent.old";
 
 const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 
@@ -807,21 +808,21 @@ export function beginWork(
     //     renderLanes,
     //   );
     // }
-    // case FunctionComponent: {
-    //   const Component = workInProgress.type;
-    //   const unresolvedProps = workInProgress.pendingProps;
-    //   const resolvedProps =
-    //     workInProgress.elementType === Component
-    //       ? unresolvedProps
-    //       : resolveDefaultProps(Component, unresolvedProps);
-    //   return updateFunctionComponent(
-    //     current,
-    //     workInProgress,
-    //     Component,
-    //     resolvedProps,
-    //     renderLanes,
-    //   );
-    // }
+    case FunctionComponent: {
+      const Component = workInProgress.type;
+      const unresolvedProps = workInProgress.pendingProps;
+      const resolvedProps =
+        workInProgress.elementType === Component
+          ? unresolvedProps
+          : resolveDefaultProps(Component, unresolvedProps);
+      return updateFunctionComponent(
+        current,
+        workInProgress,
+        Component,
+        resolvedProps,
+        renderLanes,
+      );
+    }
     // case ClassComponent: {
     //   const Component = workInProgress.type;
     //   const unresolvedProps = workInProgress.pendingProps;
@@ -1096,6 +1097,95 @@ function updateHostComponent(
   }
 
   markRef(current, workInProgress);
+  reconcileChildren(current, workInProgress, nextChildren, renderLanes);
+  return workInProgress.child;
+}
+
+function updateFunctionComponent(
+  current: any,
+  workInProgress: Fiber,
+  Component: any,
+  nextProps: any,
+  renderLanes: number,
+) {
+  if (__DEV__) {
+    if (workInProgress.type !== workInProgress.elementType) {
+      // Lazy component props can't be validated in createElement
+      // because they're only guaranteed to be resolved here.
+      const innerPropTypes = Component.propTypes;
+      if (innerPropTypes) {
+        checkPropTypes(
+          innerPropTypes,
+          nextProps, // Resolved props
+          'prop',
+          getComponentNameFromType(Component) as any,
+        );
+      }
+    }
+  }
+
+  let context;
+  if (!disableLegacyContext) {
+    const unmaskedContext = getUnmaskedContext(workInProgress, Component, true);
+    context = getMaskedContext(workInProgress, unmaskedContext);
+  }
+
+  let nextChildren;
+  prepareToReadContext(workInProgress, renderLanes);
+  if (enableSchedulingProfiler) {
+    markComponentRenderStarted(workInProgress);
+  }
+  if (__DEV__) {
+    ReactCurrentOwner.current = workInProgress;
+    setIsRendering(true);
+    nextChildren = renderWithHooks(
+      current,
+      workInProgress,
+      Component,
+      nextProps,
+      context,
+      renderLanes,
+    );
+    if (
+      debugRenderPhaseSideEffectsForStrictMode &&
+      workInProgress.mode & StrictLegacyMode
+    ) {
+      disableLogs();
+      try {
+        nextChildren = renderWithHooks(
+          current,
+          workInProgress,
+          Component,
+          nextProps,
+          context,
+          renderLanes,
+        );
+      } finally {
+        reenableLogs();
+      }
+    }
+    setIsRendering(false);
+  } else {
+    nextChildren = renderWithHooks(
+      current,
+      workInProgress,
+      Component,
+      nextProps,
+      context,
+      renderLanes,
+    );
+  }
+  if (enableSchedulingProfiler) {
+    markComponentRenderStopped();
+  }
+
+  if (current !== null && !didReceiveUpdate) {
+    bailoutHooks(current, workInProgress, renderLanes);
+    return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
+  }
+
+  // React DevTools reads this flag.
+  workInProgress.flags |= PerformedWork;
   reconcileChildren(current, workInProgress, nextChildren, renderLanes);
   return workInProgress.child;
 }

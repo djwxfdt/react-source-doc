@@ -1,5 +1,6 @@
 export {
   Children,
   Component,
-  useState
+  useState,
+  createElement
 } from './src/React';

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <style>
+    html, body, #app {
+      height: 100%;
+    }
+  </style>
+  <script>
+    globalThis.__DEV__ = true
+    globalThis.__EXPERIMENTAL__ = false
+    globalThis.__PROFILE__ = false
+    globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ =  false
+    globalThis.__VARIANT__ =  false
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="./example/index.ts"></script>
+</body>
+</html>

@@ -6,8 +6,8 @@
   "scripts": {
     "test": "jest",
     "mmdc:scheduler": "./script/mmdc.sh packages/scheduler/mmd",
-    "mmdc:reconciler": "./script/mmdc.sh packages/react-reconciler/mmd"
-
+    "mmdc:reconciler": "./script/mmdc.sh packages/react-reconciler/mmd",
+    "start": "vite"
   },
   "repository": {
     "type": "git",
@@ -27,6 +27,7 @@
     "eslint": "^7.32.0",
     "jest": "^27.0.6",
     "ts-jest": "^27.0.4",
-    "typescript": "^4.3.5"
+    "typescript": "^4.3.5",
+    "vite": "^2.7.10"
   }
 }
