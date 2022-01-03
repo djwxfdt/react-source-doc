@@ -176,3 +176,13 @@ export function markLayoutEffectsStopped(): void {
     }
   }
 }
+
+export function markStateUpdateScheduled(fiber: Fiber, lane: Lane): void {
+  if (enableSchedulingProfiler) {
+    if (supportsUserTimingV3) {
+      const componentName = getComponentNameFromFiber(fiber) || 'Unknown';
+      // TODO (scheduling profiler) Add component stack id
+      markAndClear(`--schedule-state-update-${lane}-${componentName}`);
+    }
+  }
+}

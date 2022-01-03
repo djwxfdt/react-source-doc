@@ -1,14 +1,14 @@
 import invariant from "../../shared/invariant";
-import { enableLazyContextPropagation, enableNewReconciler, enableStrictEffects } from "../../shared/ReactFeatureFlags";
+import { enableDebugTracing, enableLazyContextPropagation, enableNewReconciler, enableSchedulingProfiler, enableStrictEffects } from "../../shared/ReactFeatureFlags";
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { checkIfWorkInProgressReceivedUpdate, markWorkInProgressReceivedUpdate } from "./ReactFiberBeginWork.old";
 import { Flags } from "./ReactFiberFlags";
-import { Lane, Lanes, NoLanes } from "./ReactFiberLane.old";
+import { intersectLanes, isTransitionLane, Lane, Lanes, markRootEntangled, mergeLanes, NoLanes } from "./ReactFiberLane.old";
 import { checkIfContextChanged, readContext } from "./ReactFiberNewContext.old";
-import { warnIfNotCurrentlyActingEffectsInDEV } from "./ReactFiberWorkLoop.old";
+import { isInterleavedUpdate, requestEventTime, requestUpdateLane, scheduleUpdateOnFiber, warnIfNotCurrentlyActingEffectsInDEV, warnIfNotCurrentlyActingUpdatesInDEV } from "./ReactFiberWorkLoop.old";
 import { HookFlags } from "./ReactHookEffectTags";
 import { Dispatcher, Fiber, HookType } from "./ReactInternalTypes";
-import { ConcurrentMode, NoMode, StrictEffectsMode } from "./ReactTypeOfMode";
+import { ConcurrentMode, DebugTracingMode, NoMode, StrictEffectsMode } from "./ReactTypeOfMode";
 
 import {
   LayoutStatic as LayoutStaticEffect,
@@ -25,9 +25,18 @@ import {
   Layout as HookLayout,
   Passive as HookPassive,
 } from './ReactHookEffectTags';
+import { ReactContext } from "../../shared/ReactTypes";
+import { pushInterleavedQueue } from "./ReactFiberInterleavedUpdates.old";
+import objectIs from "../../shared/objectIs";
+import getComponentNameFromFiber from "./getComponentNameFromFiber";
+import { logStateUpdateScheduled } from "./DebugTracing";
+import { markStateUpdateScheduled } from "./SchedulingProfiler";
 
 const {ReactCurrentDispatcher, ReactCurrentBatchConfig} = ReactSharedInternals;
 
+type BasicStateAction<S> = ((s: S) => S) | S;
+
+type Dispatch<A> = (a: A) => void;
 
 // Whether an update was scheduled at any point during the render phase. This
 // does not get reset if we do another render pass; only when we're completely
@@ -54,6 +63,18 @@ let didScheduleRenderPhaseUpdateDuringThisPass = false;
 
 let ignorePreviousDependencies = false;
 
+function mountHookTypesDev() {
+  if (__DEV__) {
+    const hookName = ((currentHookNameInDev) as  HookType);
+
+    if (hookTypesDev === null) {
+      hookTypesDev = [hookName];
+    } else {
+      hookTypesDev.push(hookName);
+    }
+  }
+}
+
 const RE_RENDER_LIMIT = 25;
 
 let HooksDispatcherOnMountInDEV: Dispatcher | null = null;
@@ -64,6 +85,210 @@ let InvalidNestedHooksDispatcherOnMountInDEV: Dispatcher | null = null;
 let InvalidNestedHooksDispatcherOnUpdateInDEV: Dispatcher | null = null;
 let InvalidNestedHooksDispatcherOnRerenderInDEV: Dispatcher | null = null;
 
+function basicStateReducer<S>(state: S, action: BasicStateAction<S>): S {
+  // $FlowFixMe: Flow doesn't like mixed types
+  return typeof action === 'function' ? (action as any)(state) : action;
+}
+
+function dispatchAction<S, A>(
+  fiber: Fiber,
+  queue: UpdateQueue<S, A>,
+  action: A,
+) {
+  if (__DEV__) {
+    if (typeof arguments[3] === 'function') {
+      console.error(
+        "State updates from the useState() and useReducer() Hooks don't support the " +
+          'second callback argument. To execute a side effect after ' +
+          'rendering, declare it in the component body with useEffect().',
+      );
+    }
+  }
+
+  const eventTime = requestEventTime();
+  const lane = requestUpdateLane(fiber);
+
+  const update: Update<S, A> = {
+    lane,
+    action,
+    eagerReducer: null,
+    eagerState: null,
+    next: (null as any),
+  };
+
+  const alternate = fiber.alternate;
+  if (
+    fiber === currentlyRenderingFiber ||
+    (alternate !== null && alternate === currentlyRenderingFiber)
+  ) {
+    // This is a render phase update. Stash it in a lazily-created map of
+    // queue -> linked list of updates. After this render pass, we'll restart
+    // and apply the stashed updates on top of the work-in-progress hook.
+    didScheduleRenderPhaseUpdateDuringThisPass = didScheduleRenderPhaseUpdate = true;
+    const pending = queue.pending;
+    if (pending === null) {
+      // This is the first update. Create a circular list.
+      update.next = update;
+    } else {
+      update.next = pending.next;
+      pending.next = update;
+    }
+    queue.pending = update;
+  } else {
+    if (isInterleavedUpdate(fiber, lane)) {
+      const interleaved = queue.interleaved;
+      if (interleaved === null) {
+        // This is the first update. Create a circular list.
+        update.next = update;
+        // At the end of the current render, this queue's interleaved updates will
+        // be transfered to the pending queue.
+        pushInterleavedQueue(queue);
+      } else {
+        update.next = interleaved.next;
+        interleaved.next = update;
+      }
+      queue.interleaved = update;
+    } else {
+      const pending = queue.pending;
+      if (pending === null) {
+        // This is the first update. Create a circular list.
+        update.next = update;
+      } else {
+        update.next = pending.next;
+        pending.next = update;
+      }
+      queue.pending = update;
+    }
+
+    if (
+      fiber.lanes === NoLanes &&
+      (alternate === null || alternate.lanes === NoLanes)
+    ) {
+      // The queue is currently empty, which means we can eagerly compute the
+      // next state before entering the render phase. If the new state is the
+      // same as the current state, we may be able to bail out entirely.
+      const lastRenderedReducer = queue.lastRenderedReducer;
+      if (lastRenderedReducer !== null) {
+        let prevDispatcher;
+        if (__DEV__) {
+          prevDispatcher = ReactCurrentDispatcher.current;
+          ReactCurrentDispatcher.current = InvalidNestedHooksDispatcherOnUpdateInDEV;
+        }
+        try {
+          const currentState: S = (queue.lastRenderedState as any);
+          const eagerState = lastRenderedReducer(currentState, action);
+          // Stash the eagerly computed state, and the reducer used to compute
+          // it, on the update object. If the reducer hasn't changed by the
+          // time we enter the render phase, then the eager state can be used
+          // without calling the reducer again.
+          update.eagerReducer = lastRenderedReducer;
+          update.eagerState = eagerState;
+          if (objectIs(eagerState, currentState)) {
+            // Fast path. We can bail out without scheduling React to re-render.
+            // It's still possible that we'll need to rebase this update later,
+            // if the component re-renders for a different reason and by that
+            // time the reducer has changed.
+            return;
+          }
+        } catch (error) {
+          // Suppress the error. It will throw again in the render phase.
+        } finally {
+          if (__DEV__) {
+            ReactCurrentDispatcher.current = prevDispatcher as any;
+          }
+        }
+      }
+    }
+    if (__DEV__) {
+      // $FlowExpectedError - jest isn't a global, and isn't recognized outside of tests
+      if ('undefined' !== typeof jest) {
+        warnIfNotCurrentlyActingUpdatesInDEV(fiber);
+      }
+    }
+    const root = scheduleUpdateOnFiber(fiber, lane, eventTime);
+
+    if (isTransitionLane(lane) && root !== null) {
+      let queueLanes = queue.lanes;
+
+      // If any entangled lanes are no longer pending on the root, then they
+      // must have finished. We can remove them from the shared queue, which
+      // represents a superset of the actually pending lanes. In some cases we
+      // may entangle more than we need to, but that's OK. In fact it's worse if
+      // we *don't* entangle when we should.
+      queueLanes = intersectLanes(queueLanes, root.pendingLanes);
+
+      // Entangle the new transition lane with the other transition lanes.
+      const newQueueLanes = mergeLanes(queueLanes, lane);
+      queue.lanes = newQueueLanes;
+      // Even if queue.lanes already include lane, we don't know for certain if
+      // the lane finished since the last time we entangled it. So we need to
+      // entangle it again, just to be sure.
+      markRootEntangled(root, newQueueLanes);
+    }
+  }
+
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      if (fiber.mode & DebugTracingMode) {
+        const name = getComponentNameFromFiber(fiber) || 'Unknown';
+        logStateUpdateScheduled(name, lane, action);
+      }
+    }
+  }
+
+  if (enableSchedulingProfiler) {
+    markStateUpdateScheduled(fiber, lane);
+  }
+}
+
+function mountState<S>(
+  initialState: (() => S) | S,
+): [S, Dispatch<BasicStateAction<S>>] {
+  const hook = mountWorkInProgressHook();
+  if (typeof initialState === 'function') {
+    // $FlowFixMe: Flow doesn't like mixed types
+    initialState = (initialState as any)();
+  }
+  hook.memoizedState = hook.baseState = initialState;
+  const queue = (hook.queue = {
+    pending: null,
+    interleaved: null,
+    lanes: NoLanes,
+    dispatch: null,
+    lastRenderedReducer: basicStateReducer,
+    lastRenderedState: (initialState as any),
+  });
+  const dispatch: Dispatch<
+    BasicStateAction<S>
+  > = (queue.dispatch = (dispatchAction.bind(
+    null,
+    currentlyRenderingFiber,
+    queue,
+  ) as any));
+  return [hook.memoizedState, dispatch];
+}
+
+if (__DEV__) {
+  HooksDispatcherOnMountInDEV = {
+    readContext<T>(context: ReactContext<T>): T {
+      return readContext(context);
+    },
+    useState<S>(
+      initialState: (() => S) | S,
+    ): [S, Dispatch<BasicStateAction<S>>] {
+      currentHookNameInDev = 'useState';
+      mountHookTypesDev();
+      const prevDispatcher = ReactCurrentDispatcher.current;
+      ReactCurrentDispatcher.current = InvalidNestedHooksDispatcherOnMountInDEV;
+      try {
+        return mountState(initialState);
+      } finally {
+        ReactCurrentDispatcher.current = prevDispatcher;
+      }
+    },
+  } as any;
+
+}
 
 function mountWorkInProgressHook(): Hook {
   const hook: Hook = {
@@ -268,7 +493,7 @@ export type UpdateQueue<S, A> = {
   pending: Update<S, A> | null,
   interleaved: Update<S, A> | null,
   lanes: Lanes,
-  dispatch: (a: A) => mixed | null,
+  dispatch: ((a: A) => any) | null,
   lastRenderedReducer: ((s: S, a: A) => S) | null,
   lastRenderedState: S | null,
 };

@@ -2166,3 +2166,43 @@ export function flushSyncWithoutWarningIfAlreadyRendering(fn: Function) {
     }
   }
 }
+
+export function warnIfNotCurrentlyActingUpdatesInDEV(fiber: Fiber): void {
+  if (__DEV__) {
+    if (
+      warnsIfNotActing === true &&
+      executionContext === NoContext &&
+      ReactCurrentActQueue.current === null &&
+      // Our internal tests use a custom implementation of `act` that works by
+      // mocking the Scheduler package. Disable the `act` warning.
+      // TODO: Maybe the warning should be disabled by default, and then turned
+      // on at the testing frameworks layer? Instead of what we do now, which
+      // is check if a `jest` global is defined.
+      ReactCurrentActQueue.disableActWarning === false
+    ) {
+      const previousFiber = ReactCurrentFiberCurrent;
+      try {
+        setCurrentDebugFiberInDEV(fiber);
+        console.error(
+          'An update to %s inside a test was not wrapped in act(...).\n\n' +
+            'When testing, code that causes React state updates should be ' +
+            'wrapped into act(...):\n\n' +
+            'act(() => {\n' +
+            '  /* fire events that update state */\n' +
+            '});\n' +
+            '/* assert on the output */\n\n' +
+            "This ensures that you're testing the behavior the user would see " +
+            'in the browser.' +
+            ' Learn more at https://reactjs.org/link/wrap-tests-with-act',
+          getComponentNameFromFiber(fiber),
+        );
+      } finally {
+        if (previousFiber) {
+          setCurrentDebugFiberInDEV(fiber);
+        } else {
+          resetCurrentDebugFiberInDEV();
+        }
+      }
+    }
+  }
+}

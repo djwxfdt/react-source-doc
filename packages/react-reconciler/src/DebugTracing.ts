@@ -188,3 +188,22 @@ export function logLayoutEffectsStopped(): void {
     }
   }
 }
+
+export function logStateUpdateScheduled(
+  componentName: string,
+  lane: Lane,
+  payloadOrAction: any,
+): void {
+  if (__DEV__) {
+    if (enableDebugTracing) {
+      log(
+        `%c⚛️%c ${componentName} updated state %c(${formatLanes(lane)})`,
+        REACT_LOGO_STYLE,
+        'color: #01a252; font-weight: bold;',
+        '',
+        payloadOrAction,
+      );
+    }
+  }
+}
+

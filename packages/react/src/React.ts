@@ -17,3 +17,5 @@ export {
   createElement,
   Component
 };
+
+export {useState} from './ReactHooks'

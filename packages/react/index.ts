@@ -1,4 +1,5 @@
 export {
   Children,
-  Component
+  Component,
+  useState
 } from './src/React';
