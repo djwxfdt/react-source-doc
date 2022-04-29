@@ -20,8 +20,8 @@ import {
 } from './ReactFiberContext.old';
 import { getHostContext, getRootHostContainer, popHostContainer, popHostContext } from "./ReactFiberHostContext.old";
 import { popCacheProvider, popRootCachePool } from "./ReactFiberCacheComponent.old";
-import { popHydrationState, prepareToHydrateHostInstance } from "./ReactFiberHydrationContext.old";
-import { Container, Instance, Props, Type, prepareUpdate, createInstance, appendInitialChild, finalizeInitialChildren } from "./ReactFiberHostConfig";
+import { popHydrationState, prepareToHydrateHostInstance, prepareToHydrateHostTextInstance } from "./ReactFiberHydrationContext.old";
+import { Container, Instance, Props, Type, prepareUpdate, createInstance, appendInitialChild, finalizeInitialChildren, createTextInstance } from "./ReactFiberHostConfig";
 
 let updateHostContainer: (arg0: Fiber | null, arg1: Fiber) => void
 
@@ -393,41 +393,41 @@ export function completeWork(
       bubbleProperties(workInProgress);
       return null;
     }
-    // case HostText: {
-    //   const newText = newProps;
-    //   if (current && workInProgress.stateNode != null) {
-    //     const oldText = current.memoizedProps;
-    //     // If we have an alternate, that means this is an update and we need
-    //     // to schedule a side-effect to do the updates.
-    //     updateHostText(current, workInProgress, oldText, newText);
-    //   } else {
-    //     if (typeof newText !== 'string') {
-    //       invariant(
-    //         workInProgress.stateNode !== null,
-    //         'We must have new props for new mounts. This error is likely ' +
-    //           'caused by a bug in React. Please file an issue.',
-    //       );
-    //       // This can happen when we abort work.
-    //     }
-    //     const rootContainerInstance = getRootHostContainer();
-    //     const currentHostContext = getHostContext();
-    //     const wasHydrated = popHydrationState(workInProgress);
-    //     if (wasHydrated) {
-    //       if (prepareToHydrateHostTextInstance(workInProgress)) {
-    //         markUpdate(workInProgress);
-    //       }
-    //     } else {
-    //       workInProgress.stateNode = createTextInstance(
-    //         newText,
-    //         rootContainerInstance,
-    //         currentHostContext,
-    //         workInProgress,
-    //       );
-    //     }
-    //   }
-    //   bubbleProperties(workInProgress);
-    //   return null;
-    // }
+    case HostText: {
+      const newText = newProps;
+      if (current && workInProgress.stateNode != null) {
+        const oldText = current.memoizedProps;
+        // If we have an alternate, that means this is an update and we need
+        // to schedule a side-effect to do the updates.
+        // updateHostText(current, workInProgress, oldText, newText);
+      } else {
+        if (typeof newText !== 'string') {
+          invariant(
+            workInProgress.stateNode !== null,
+            'We must have new props for new mounts. This error is likely ' +
+              'caused by a bug in React. Please file an issue.',
+          );
+          // This can happen when we abort work.
+        }
+        const rootContainerInstance = getRootHostContainer();
+        const currentHostContext = getHostContext();
+        const wasHydrated = popHydrationState(workInProgress);
+        if (wasHydrated) {
+          if (prepareToHydrateHostTextInstance(workInProgress)) {
+            markUpdate(workInProgress);
+          }
+        } else {
+          workInProgress.stateNode = createTextInstance(
+            newText,
+            rootContainerInstance,
+            currentHostContext,
+            workInProgress,
+          );
+        }
+      }
+      bubbleProperties(workInProgress);
+      return null;
+    }
     // case SuspenseComponent: {
     //   popSuspenseContext(workInProgress);
     //   const nextState: null | SuspenseState = workInProgress.memoizedState;

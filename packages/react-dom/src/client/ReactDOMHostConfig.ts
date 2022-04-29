@@ -8,7 +8,7 @@ import { DOMEventName } from "../events/DOMEventNames";
 import { getEventPriority } from "../events/ReactDOMEventListener";
 import { getChildNamespace } from "../shared/DOMNamespaces";
 import { COMMENT_NODE, DOCUMENT_FRAGMENT_NODE, DOCUMENT_NODE, ELEMENT_NODE, TEXT_NODE } from "../shared/HTMLNodeType";
-import { createElement, diffHydratedProperties, diffProperties, setInitialProperties, updateProperties } from "./ReactDOMComponent";
+import { createElement, createTextNode, diffHydratedProperties, diffHydratedText, diffProperties, setInitialProperties, updateProperties, warnForUnmatchedText } from "./ReactDOMComponent";
 import { getSelectionInformation, restoreSelection } from "./ReactInputSelection";
 import { updatedAncestorInfo, validateDOMNesting } from "./validateDOMNesting";
 
@@ -949,4 +949,50 @@ export function commitTextUpdate(
   newText: string,
 ): void {
   textInstance.nodeValue = newText;
+}
+
+export function hydrateTextInstance(
+  textInstance: TextInstance,
+  text: string,
+  internalInstanceHandle: Object,
+): boolean {
+  precacheFiberNode(internalInstanceHandle, textInstance);
+  return diffHydratedText(textInstance, text);
+}
+
+export function didNotMatchHydratedContainerTextInstance(
+  parentContainer: Container,
+  textInstance: TextInstance,
+  text: string,
+) {
+  if (__DEV__) {
+    warnForUnmatchedText(textInstance, text);
+  }
+}
+
+export function didNotMatchHydratedTextInstance(
+  parentType: string,
+  parentProps: Props,
+  parentInstance: Instance,
+  textInstance: TextInstance,
+  text: string,
+) {
+  if (__DEV__ && parentProps[SUPPRESS_HYDRATION_WARNING] !== true) {
+    warnForUnmatchedText(textInstance, text);
+  }
+}
+
+export function createTextInstance(
+  text: string,
+  rootContainerInstance: Container,
+  hostContext: HostContext,
+  internalInstanceHandle: Object,
+): TextInstance {
+  if (__DEV__) {
+    const hostContextDev = ((hostContext as any) as HostContextDev);
+    validateDOMNesting(null, text, hostContextDev.ancestorInfo);
+  }
+  const textNode: TextInstance = createTextNode(text, rootContainerInstance);
+  precacheFiberNode(internalInstanceHandle, textNode);
+  return textNode;
 }

@@ -3,7 +3,7 @@ import invariant from "../../shared/invariant";
 import { enableSuspenseServerRenderer } from "../../shared/ReactFeatureFlags";
 import { createFiberFromDehydratedFragment, createFiberFromHostInstanceForDeletion } from "./ReactFiber.old";
 import { ChildDeletion, Hydrating, Placement } from "./ReactFiberFlags";
-import { canHydrateInstance, canHydrateSuspenseInstance, canHydrateTextInstance, Container, didNotFindHydratableContainerInstance, didNotFindHydratableContainerSuspenseInstance, didNotFindHydratableContainerTextInstance, didNotFindHydratableInstance, didNotFindHydratableSuspenseInstance, didNotFindHydratableTextInstance, didNotHydrateContainerInstance, didNotHydrateInstance, getFirstHydratableChild, getNextHydratableInstanceAfterSuspenseInstance, getNextHydratableSibling, HostContext, HydratableInstance, hydrateInstance, Instance, shouldDeleteUnhydratedTailInstances, shouldSetTextContent, supportsHydration, SuspenseInstance, TextInstance } from "./ReactFiberHostConfig";
+import { canHydrateInstance, canHydrateSuspenseInstance, canHydrateTextInstance, Container, didNotFindHydratableContainerInstance, didNotFindHydratableContainerSuspenseInstance, didNotFindHydratableContainerTextInstance, didNotFindHydratableInstance, didNotFindHydratableSuspenseInstance, didNotFindHydratableTextInstance, didNotHydrateContainerInstance, didNotHydrateInstance, didNotMatchHydratedContainerTextInstance, didNotMatchHydratedTextInstance, getFirstHydratableChild, getNextHydratableInstanceAfterSuspenseInstance, getNextHydratableSibling, HostContext, HydratableInstance, hydrateInstance, hydrateTextInstance, Instance, shouldDeleteUnhydratedTailInstances, shouldSetTextContent, supportsHydration, SuspenseInstance, TextInstance } from "./ReactFiberHostConfig";
 import { OffscreenLane } from "./ReactFiberLane.old";
 import { SuspenseState } from "./ReactFiberSuspenseComponent.old";
 import { Fiber } from "./ReactInternalTypes";
@@ -337,4 +337,52 @@ export function prepareToHydrateHostInstance(
     return true;
   }
   return false;
+}
+
+export function prepareToHydrateHostTextInstance(fiber: Fiber): boolean {
+  if (!supportsHydration) {
+    invariant(
+      false,
+      'Expected prepareToHydrateHostTextInstance() to never be called. ' +
+        'This error is likely caused by a bug in React. Please file an issue.',
+    );
+  }
+
+  const textInstance: TextInstance = fiber.stateNode;
+  const textContent: string = fiber.memoizedProps;
+  const shouldUpdate = hydrateTextInstance(textInstance, textContent, fiber);
+  if (__DEV__) {
+    if (shouldUpdate) {
+      // We assume that prepareToHydrateHostTextInstance is called in a context where the
+      // hydration parent is the parent host component of this host text.
+      const returnFiber = hydrationParentFiber;
+      if (returnFiber !== null) {
+        switch (returnFiber.tag) {
+          case HostRoot: {
+            const parentContainer = returnFiber.stateNode.containerInfo;
+            didNotMatchHydratedContainerTextInstance(
+              parentContainer,
+              textInstance,
+              textContent,
+            );
+            break;
+          }
+          case HostComponent: {
+            const parentType = returnFiber.type;
+            const parentProps = returnFiber.memoizedProps;
+            const parentInstance = returnFiber.stateNode;
+            didNotMatchHydratedTextInstance(
+              parentType,
+              parentProps,
+              parentInstance,
+              textInstance,
+              textContent,
+            );
+            break;
+          }
+        }
+      }
+    }
+  }
+  return shouldUpdate;
 }

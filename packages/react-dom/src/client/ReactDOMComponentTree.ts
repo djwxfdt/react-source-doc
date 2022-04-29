@@ -96,7 +96,7 @@ export function warnForInsertedHydratedText(
 }
 
 export function precacheFiberNode(
-  hostInst: Fiber,
+  hostInst: any,
   node: Instance | TextInstance | SuspenseInstance | ReactScopeInstance,
 ): void {
   (node as any)[internalInstanceKey] = hostInst;

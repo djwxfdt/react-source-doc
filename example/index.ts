@@ -10,16 +10,14 @@ const Child = () => {
   }, 100)
 
   React.useEffect(() => {
-    debugger
     console.log('zzz')
   },[])
 
   React.useLayoutEffect(() => {
-    debugger
     console.log('aaa')
-  },[])
+  },[state])
   
-  return React.createElement('div')
+  return React.createElement('div', {}, ['1'])
 }
 
 ReactDOM.render(React.createElement(Child), document.getElementById('app')!)

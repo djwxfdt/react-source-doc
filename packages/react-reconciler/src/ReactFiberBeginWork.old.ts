@@ -235,9 +235,9 @@ function attemptEarlyBailoutIfNoScheduledUpdate(
       }
       resetHydrationState();
       break;
-  //   case HostComponent:
-  //     pushHostContext(workInProgress);
-  //     break;
+    case HostComponent:
+      pushHostContext(workInProgress);
+      break;
   //   case ClassComponent: {
   //     const Component = workInProgress.type;
   //     if (isLegacyContextProvider(Component)) {
@@ -842,8 +842,8 @@ export function beginWork(
       return updateHostRoot(current!, workInProgress, renderLanes);
     case HostComponent:
       return updateHostComponent(current, workInProgress, renderLanes);
-    // case HostText:
-    //   return updateHostText(current, workInProgress);
+    case HostText:
+      return updateHostText(current, workInProgress);
     // case SuspenseComponent:
     //   return updateSuspenseComponent(current, workInProgress, renderLanes);
     // case HostPortal:
@@ -1189,3 +1189,13 @@ function updateFunctionComponent(
   reconcileChildren(current, workInProgress, nextChildren, renderLanes);
   return workInProgress.child;
 }
+
+function updateHostText(current: any, workInProgress: any) {
+  if (current === null) {
+    tryToClaimNextHydratableInstance(workInProgress);
+  }
+  // Nothing to do here. This is terminal. We'll do the completion step
+  // immediately after.
+  return null;
+}
+

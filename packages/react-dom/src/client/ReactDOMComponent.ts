@@ -60,7 +60,7 @@ let canDiffStyleForHydrationWarning = false;
 
 let warnForExtraAttributes: (attributeNames: Set<string>) => void;
 let warnForInvalidEventListener: (registrationName: string, listener: any) => void;
-let warnForTextDifference: (serverText: string, clientText: string | number) => void;
+let warnForTextDifference: (serverText: string | null, clientText: string | number) => void;
 let warnForPropDifference: (propName: string, serverValue: mixed, clientValue: mixed) => void;
 
 let normalizeMarkupForTextOrAttribute: (markup: mixed) => string;
@@ -125,7 +125,7 @@ if (__DEV__) {
   };
 
   warnForTextDifference = function(
-    serverText: string,
+    serverText: string | null,
     clientText: string | number,
   ) {
     if (didWarnInvalidHydration) {
@@ -1096,3 +1096,25 @@ function updateDOMProperties(
   }
 }
 
+export function diffHydratedText(textNode: Text, text: string): boolean {
+  const isDifferent = textNode.nodeValue !== text;
+  return isDifferent;
+}
+
+
+
+export function warnForUnmatchedText(textNode: Text, text: string) {
+  if (__DEV__) {
+    warnForTextDifference(textNode.nodeValue, text);
+  }
+}
+
+
+export function createTextNode(
+  text: string,
+  rootContainerElement: Element | Document,
+): Text {
+  return getOwnerDocumentFromRootContainer(rootContainerElement).createTextNode(
+    text,
+  );
+}
