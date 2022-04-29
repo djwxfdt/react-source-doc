@@ -18,4 +18,4 @@ export {
   Component
 };
 
-export {useState} from './ReactHooks'
+export {useState, useEffect, useLayoutEffect} from './ReactHooks'

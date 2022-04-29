@@ -1,4 +1,5 @@
 import { disableLogs, reenableLogs } from "../../shared/ConsolePatchingDev";
+import invariant from "../../shared/invariant";
 import { debugRenderPhaseSideEffectsForStrictMode } from "../../shared/ReactFeatureFlags";
 import { Callback, DidCapture, ShouldCapture } from "./ReactFiberFlags";
 import { pushInterleavedQueue } from "./ReactFiberInterleavedUpdates.old";
@@ -566,5 +567,35 @@ export function processUpdateQueue<State>(
 
   if (__DEV__) {
     currentlyProcessingQueue = null;
+  }
+}
+
+function callCallback(callback: any, context: any) {
+  invariant(
+    typeof callback === 'function',
+    'Invalid argument passed as callback. Expected a function. Instead ' +
+      'received: %s',
+    callback,
+  );
+  callback.call(context);
+}
+
+export function commitUpdateQueue<State>(
+  finishedWork: Fiber,
+  finishedQueue: UpdateQueue<State>,
+  instance: any,
+): void {
+  // Commit the effects
+  const effects = finishedQueue.effects;
+  finishedQueue.effects = null;
+  if (effects !== null) {
+    for (let i = 0; i < effects.length; i++) {
+      const effect = effects[i];
+      const callback = effect.callback;
+      if (callback !== null) {
+        effect.callback = null;
+        callCallback(callback, instance);
+      }
+    }
   }
 }

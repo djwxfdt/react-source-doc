@@ -1,5 +1,5 @@
 import invariant from "../../shared/invariant";
-import { enableDebugTracing, enableLazyContextPropagation, enableNewReconciler, enableSchedulingProfiler, enableStrictEffects } from "../../shared/ReactFeatureFlags";
+import { enableDebugTracing, enableLazyContextPropagation, enableNewReconciler, enableSchedulingProfiler, enableStrictEffects, enableSuspenseLayoutEffectSemantics } from "../../shared/ReactFeatureFlags";
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { checkIfWorkInProgressReceivedUpdate, markWorkInProgressReceivedUpdate } from "./ReactFiberBeginWork.old";
 import { Flags } from "./ReactFiberFlags";
@@ -31,6 +31,7 @@ import objectIs from "../../shared/objectIs";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { logStateUpdateScheduled } from "./DebugTracing";
 import { markStateUpdateScheduled } from "./SchedulingProfiler";
+import isArray from "../../shared/isArray";
 
 const {ReactCurrentDispatcher, ReactCurrentBatchConfig} = ReactSharedInternals;
 
@@ -423,10 +424,57 @@ function mountState<S>(
   return [hook.memoizedState, dispatch];
 }
 
+function updateEffectImpl(fiberFlags: number, hookFlags: number, create: () => (() => void) | void, deps: Array<mixed> | void | null): void {
+  const hook = updateWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  let destroy = undefined;
+
+  if (currentHook !== null) {
+    const prevEffect = currentHook.memoizedState;
+    destroy = prevEffect.destroy;
+    if (nextDeps !== null) {
+      const prevDeps = prevEffect.deps;
+      if (areHookInputsEqual(nextDeps, prevDeps)) {
+        hook.memoizedState = pushEffect(hookFlags, create, destroy, nextDeps);
+        return;
+      }
+    }
+  }
+
+  currentlyRenderingFiber.flags |= fiberFlags;
+
+  hook.memoizedState = pushEffect(
+    HookHasEffect | hookFlags,
+    create,
+    destroy,
+    nextDeps,
+  );
+}
+
 function updateState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
   return updateReducer(basicStateReducer, (initialState as any));
+}
+
+function updateEffect(
+  create: () => (() => void) | void,
+  deps: Array<mixed> | void | null,
+): void {
+  if (__DEV__) {
+    // $FlowExpectedError - jest isn't a global, and isn't recognized outside of tests
+    if ('undefined' !== typeof jest) {
+      warnIfNotCurrentlyActingEffectsInDEV(currentlyRenderingFiber);
+    }
+  }
+  return updateEffectImpl(PassiveEffect, HookPassive, create, deps);
+}
+
+function updateLayoutEffect(
+  create: () => (() => void) | void,
+  deps: Array<mixed> | void | null,
+): void {
+  return updateEffectImpl(UpdateEffect, HookLayout, create, deps);
 }
 
 function updateHookTypesDev() {
@@ -460,6 +508,24 @@ if (__DEV__) {
         ReactCurrentDispatcher.current = prevDispatcher;
       }
     },
+    useEffect(
+      create: () => (() => void) | void,
+      deps: Array<mixed> | void | null,
+    ): void {
+      currentHookNameInDev = 'useEffect';
+      mountHookTypesDev();
+      checkDepsAreArrayDev(deps);
+      return mountEffect(create, deps);
+    },
+    useLayoutEffect(
+      create: () => (() => void) | void,
+      deps: Array<mixed> | void | null,
+    ): void {
+      currentHookNameInDev = 'useLayoutEffect';
+      mountHookTypesDev();
+      checkDepsAreArrayDev(deps);
+      return mountLayoutEffect(create, deps);
+    },
   } as any;
 
   HooksDispatcherOnUpdateInDEV = {
@@ -475,6 +541,22 @@ if (__DEV__) {
       } finally {
         ReactCurrentDispatcher.current = prevDispatcher;
       }
+    },
+    useEffect(
+      create: () => (() => void) | void,
+      deps: Array<mixed> | void | null,
+    ): void {
+      currentHookNameInDev = 'useEffect';
+      updateHookTypesDev();
+      return updateEffect(create, deps);
+    },
+    useLayoutEffect(
+      create: () => (() => void) | void,
+      deps: Array<mixed> | void | null,
+    ): void {
+      currentHookNameInDev = 'useLayoutEffect';
+      updateHookTypesDev();
+      return updateLayoutEffect(create, deps);
     },
   } as any
 }
@@ -586,7 +668,27 @@ function mountEffect(
   }
 }
 
+function mountLayoutEffect(
+  create: () => (() => void) | void,
+  deps: Array<mixed> | void | null,
+): void {
+  let fiberFlags: Flags = UpdateEffect;
+  if (enableSuspenseLayoutEffectSemantics) {
+    fiberFlags |= LayoutStaticEffect;
+  }
+  if (
+    __DEV__ &&
+    enableStrictEffects &&
+    (currentlyRenderingFiber.mode & StrictEffectsMode) !== NoMode
+  ) {
+    fiberFlags |= MountLayoutDevEffect;
+  }
+  return mountEffectImpl(fiberFlags, HookLayout, create, deps);
+}
 
+/**
+ * 生产环境
+ */
 const HooksDispatcherOnMount: Dispatcher = {
   readContext,
 
@@ -594,11 +696,11 @@ const HooksDispatcherOnMount: Dispatcher = {
   useContext: readContext,
   useEffect: mountEffect,
   // useImperativeHandle: mountImperativeHandle,
-  // useLayoutEffect: mountLayoutEffect,
+  useLayoutEffect: mountLayoutEffect,
   // useMemo: mountMemo,
   // useReducer: mountReducer,
   // useRef: mountRef,
-  // useState: mountState,
+  useState: mountState,
   // useDebugValue: mountDebugValue,
   // useDeferredValue: mountDeferredValue,
   // useTransition: mountTransition,
@@ -613,13 +715,13 @@ const HooksDispatcherOnUpdate: Dispatcher = {
 
   // useCallback: updateCallback,
   useContext: readContext,
-  // useEffect: updateEffect,
+  useEffect: updateEffect,
   // useImperativeHandle: updateImperativeHandle,
-  // useLayoutEffect: updateLayoutEffect,
+  useLayoutEffect: updateLayoutEffect,
   // useMemo: updateMemo,
   // useReducer: updateReducer,
   // useRef: updateRef,
-  // useState: updateState,
+  useState: updateState,
   // useDebugValue: updateDebugValue,
   // useDeferredValue: updateDeferredValue,
   // useTransition: updateTransition,
@@ -636,7 +738,7 @@ const HooksDispatcherOnRerender: Dispatcher = {
   // useContext: readContext,
   // useEffect: updateEffect,
   // useImperativeHandle: updateImperativeHandle,
-  // useLayoutEffect: updateLayoutEffect,
+  useLayoutEffect: updateLayoutEffect,
   // useMemo: updateMemo,
   // useReducer: rerenderReducer,
   // useRef: updateRef,
@@ -1025,4 +1127,67 @@ function updateWorkInProgressHook(): Hook {
     }
   }
   return workInProgressHook;
+}
+
+
+function areHookInputsEqual(
+  nextDeps: Array<mixed>,
+  prevDeps: Array<mixed> | null,
+) {
+  if (__DEV__) {
+    if (ignorePreviousDependencies) {
+      // Only true when this component is being hot reloaded.
+      return false;
+    }
+  }
+
+  if (prevDeps === null) {
+    if (__DEV__) {
+      console.error(
+        '%s received a final argument during this render, but not during ' +
+          'the previous render. Even though the final argument is optional, ' +
+          'its type cannot change between renders.',
+        currentHookNameInDev,
+      );
+    }
+    return false;
+  }
+
+  if (__DEV__) {
+    // Don't bother comparing lengths in prod because these arrays should be
+    // passed inline.
+    if (nextDeps.length !== prevDeps.length) {
+      console.error(
+        'The final argument passed to %s changed size between renders. The ' +
+          'order and size of this array must remain constant.\n\n' +
+          'Previous: %s\n' +
+          'Incoming: %s',
+        currentHookNameInDev,
+        `[${prevDeps.join(', ')}]`,
+        `[${nextDeps.join(', ')}]`,
+      );
+    }
+  }
+  for (let i = 0; i < prevDeps.length && i < nextDeps.length; i++) {
+    if (objectIs(nextDeps[i], prevDeps[i])) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function checkDepsAreArrayDev(deps: mixed) {
+  if (__DEV__) {
+    if (deps !== undefined && deps !== null && !isArray(deps)) {
+      // Verify deps, but only on mount to avoid extra checks.
+      // It's unlikely their type would change as usually you define them inline.
+      console.error(
+        '%s received a final argument that is not an array (instead, received `%s`). When ' +
+          'specified, the final argument must be an array.',
+        currentHookNameInDev,
+        typeof deps,
+      );
+    }
+  }
 }

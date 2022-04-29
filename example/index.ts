@@ -8,6 +8,17 @@ const Child = () => {
   setTimeout(() => {
     setState(1)
   }, 100)
+
+  React.useEffect(() => {
+    debugger
+    console.log('zzz')
+  },[])
+
+  React.useLayoutEffect(() => {
+    debugger
+    console.log('aaa')
+  },[])
+  
   return React.createElement('div')
 }
 
