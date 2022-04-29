@@ -1,3 +1,4 @@
+/* eslint-disable no-prototype-builtins */
 /* eslint-disable no-case-declarations */
 import { DefaultEventPriority } from "../../../react-reconciler/src/ReactEventPriorities";
 import { Fiber, FiberRoot } from "../../../react-reconciler/src/ReactInternalTypes";
@@ -7,7 +8,7 @@ import { DOMEventName } from "../events/DOMEventNames";
 import { getEventPriority } from "../events/ReactDOMEventListener";
 import { getChildNamespace } from "../shared/DOMNamespaces";
 import { COMMENT_NODE, DOCUMENT_FRAGMENT_NODE, DOCUMENT_NODE, ELEMENT_NODE, TEXT_NODE } from "../shared/HTMLNodeType";
-import { createElement, diffHydratedProperties, diffProperties, setInitialProperties } from "./ReactDOMComponent";
+import { createElement, diffHydratedProperties, diffProperties, setInitialProperties, updateProperties } from "./ReactDOMComponent";
 import { getSelectionInformation, restoreSelection } from "./ReactInputSelection";
 import { updatedAncestorInfo, validateDOMNesting } from "./validateDOMNesting";
 
@@ -33,8 +34,13 @@ import {
 import { HostComponent, HostText } from "../../../react-reconciler/src/ReactWorkTags";
 import { BoundingRect, IntersectionObserverOptions, ObserveVisibleRectsCallback } from "../../../react-reconciler/src/ReactTestSelectors";
 import { hasRole } from "./DOMAccessibilityRoles";
+import setTextContent from "./setTextContent";
+import dangerousStyleValue from "../shared/dangerousStyleValue";
+import { retryIfBlockedOn } from "../events/ReactDOMEventReplaying";
 
 export type Type = string;
+
+const STYLE = 'style';
 
 export type Props = {
   autoFocus?: boolean,
@@ -73,6 +79,7 @@ let didWarnInvalidHydration = false;
 let eventsEnabled = null as boolean | null;
 let selectionInformation: null | SelectionInformation = null;
 
+export type UpdatePayload = Array<mixed>;
 
 type HostContextProd = string;
 
@@ -875,4 +882,71 @@ export function commitMount(
   if (shouldAutoFocusHostComponent(type, newProps)) {
     (domElement as (HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)).focus();
   }
+}
+
+export function resetTextContent(domElement: Instance): void {
+  setTextContent(domElement, '');
+}
+
+export function hideInstance(instance: Instance): void {
+  // TODO: Does this work for all element types? What about MathML? Should we
+  // pass host context to this method?
+  instance = ((instance as any) as HTMLElement);
+  const style = (instance as HTMLElement).style;
+  if (typeof style.setProperty === 'function') {
+    style.setProperty('display', 'none', 'important');
+  } else {
+    style.display = 'none';
+  }
+}
+
+export function hideTextInstance(textInstance: TextInstance): void {
+  textInstance.nodeValue = '';
+}
+
+export function unhideInstance(instance: Instance, props: Props): void {
+  instance = ((instance as any) as HTMLElement);
+  const styleProp = props[STYLE];
+  const display =
+    styleProp !== undefined &&
+    styleProp !== null &&
+    styleProp.hasOwnProperty('display')
+      ? styleProp.display
+      : null;
+  (instance as HTMLElement).style.display = dangerousStyleValue('display', display);
+}
+
+export function unhideTextInstance(
+  textInstance: TextInstance,
+  text: string,
+): void {
+  textInstance.nodeValue = text;
+}
+
+export function commitHydratedContainer(container: Container): void {
+  // Retry if any event replaying was blocked on this.
+  retryIfBlockedOn(container);
+}
+
+export function commitUpdate(
+  domElement: Instance,
+  updatePayload: Array<mixed>,
+  type: string,
+  oldProps: Props,
+  newProps: Props,
+  internalInstanceHandle: Object,
+): void {
+  // Update the props handle so that we know which props are the ones with
+  // with current event handlers.
+  updateFiberProps(domElement, newProps);
+  // Apply the diff to the DOM node.
+  updateProperties(domElement, updatePayload, type, oldProps, newProps);
+}
+
+export function commitTextUpdate(
+  textInstance: TextInstance,
+  oldText: string,
+  newText: string,
+): void {
+  textInstance.nodeValue = newText;
 }

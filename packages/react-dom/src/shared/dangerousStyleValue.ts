@@ -11,7 +11,7 @@ import {isUnitlessNumber} from './CSSProperty';
  * @param {*} value CSS property value such as `10px`.
  * @return {string} Normalized style value with dimensions applied.
  */
-function dangerousStyleValue(name: any, value: any, isCustomProperty: any) {
+function dangerousStyleValue(name: any, value: any, isCustomProperty?: any) {
   // Note that we've removed escapeTextForBrowser() calls here since the
   // whole string will be escaped when the attribute is injected into
   // the markup. If you provide unsafe user data here they can inject

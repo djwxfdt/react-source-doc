@@ -15,6 +15,15 @@ import {
   DefaultEventPriority,
   IdleEventPriority,
 } from '../../../react-reconciler/src/ReactEventPriorities';
+import { getNearestMountedFiber, getSuspenseInstanceFromFiber, getContainerFromFiber } from "../../../react-reconciler/src/ReactFiberTreeReflection";
+import { FiberRoot } from "../../../react-reconciler/src/ReactInternalTypes";
+import { SuspenseComponent, HostRoot } from "../../../react-reconciler/src/ReactWorkTags";
+import { getClosestInstanceFromNode } from "../client/ReactDOMComponentTree";
+import { Container, SuspenseInstance } from "../client/ReactDOMHostConfig";
+import { EventSystemFlags } from "./EventSystemFlags";
+import { AnyNativeEvent } from "./PluginModuleType";
+import getEventTarget from "./getEventTarget";
+import { dispatchEventForPluginEventSystem } from "./DOMPluginEventSystem";
 
 export let _enabled = true;
 
@@ -131,4 +140,65 @@ export function isEnabled() {
 
 export function setEnabled(enabled?: boolean | null) {
   _enabled = !!enabled;
+}
+
+
+// Attempt dispatching an event. Returns a SuspenseInstance or Container if it's blocked.
+export function attemptToDispatchEvent(
+  domEventName: DOMEventName,
+  eventSystemFlags: EventSystemFlags,
+  targetContainer: EventTarget,
+  nativeEvent: AnyNativeEvent,
+): null | Container | SuspenseInstance {
+  // TODO: Warn if _enabled is false.
+
+  const nativeEventTarget = getEventTarget(nativeEvent);
+  let targetInst = getClosestInstanceFromNode(nativeEventTarget);
+
+  if (targetInst !== null) {
+    const nearestMounted = getNearestMountedFiber(targetInst);
+    if (nearestMounted === null) {
+      // This tree has been unmounted already. Dispatch without a target.
+      targetInst = null;
+    } else {
+      const tag = nearestMounted.tag;
+      if (tag === SuspenseComponent) {
+        const instance = getSuspenseInstanceFromFiber(nearestMounted);
+        if (instance !== null) {
+          // Queue the event to be replayed later. Abort dispatching since we
+          // don't want this event dispatched twice through the event system.
+          // TODO: If this is the first discrete event in the queue. Schedule an increased
+          // priority for this boundary.
+          return instance;
+        }
+        // This shouldn't happen, something went wrong but to avoid blocking
+        // the whole system, dispatch the event without a target.
+        // TODO: Warn.
+        targetInst = null;
+      } else if (tag === HostRoot) {
+        const root: FiberRoot = nearestMounted.stateNode;
+        if (root.hydrate) {
+          // If this happens during a replay something went wrong and it might block
+          // the whole system.
+          return getContainerFromFiber(nearestMounted);
+        }
+        targetInst = null;
+      } else if (nearestMounted !== targetInst) {
+        // If we get an event (ex: img onload) before committing that
+        // component's mount, ignore it for now (that is, treat it as if it was an
+        // event on a non-React tree). We might also consider queueing events and
+        // dispatching them after the mount.
+        targetInst = null;
+      }
+    }
+  }
+  dispatchEventForPluginEventSystem(
+    domEventName,
+    eventSystemFlags,
+    nativeEvent,
+    targetInst,
+    targetContainer,
+  );
+  // We're not blocked on anything.
+  return null;
 }

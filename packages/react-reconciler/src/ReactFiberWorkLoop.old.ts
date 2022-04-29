@@ -2206,3 +2206,7 @@ export function warnIfNotCurrentlyActingUpdatesInDEV(fiber: Fiber): void {
     }
   }
 }
+
+export function markCommitTimeOfFallback() {
+  globalMostRecentFallbackTime = now();
+}

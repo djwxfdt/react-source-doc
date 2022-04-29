@@ -1,7 +1,9 @@
 import invariant from "../../shared/invariant";
 import { Placement, Hydrating, NoFlags } from "./ReactFiberFlags";
+import { Container, SuspenseInstance } from "./ReactFiberHostConfig";
+import { SuspenseState } from "./ReactFiberSuspenseComponent.old";
 import { Fiber } from "./ReactInternalTypes";
-import { HostComponent, HostPortal, HostRoot, HostText } from "./ReactWorkTags";
+import { HostComponent, HostPortal, HostRoot, HostText, SuspenseComponent } from "./ReactWorkTags";
 
 export function getNearestMountedFiber(fiber: Fiber): null | Fiber {
   let node = fiber;
@@ -222,4 +224,28 @@ export function doesFiberContain(
     node = node.return!;
   }
   return false;
+}
+
+export function getSuspenseInstanceFromFiber(
+  fiber: Fiber,
+): null | SuspenseInstance {
+  if (fiber.tag === SuspenseComponent) {
+    let suspenseState: SuspenseState | null = fiber.memoizedState;
+    if (suspenseState === null) {
+      const current = fiber.alternate;
+      if (current !== null) {
+        suspenseState = current.memoizedState;
+      }
+    }
+    if (suspenseState !== null) {
+      return suspenseState.dehydrated;
+    }
+  }
+  return null;
+}
+
+export function getContainerFromFiber(fiber: Fiber): null | Container {
+  return fiber.tag === HostRoot
+    ? (fiber.stateNode.containerInfo as Container)
+    : null;
 }

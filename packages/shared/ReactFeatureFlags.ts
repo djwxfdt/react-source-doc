@@ -107,3 +107,9 @@ export const disableModulePatternComponents = false;
 export const enablePersistentOffscreenHostContainer = false;
 
 export const enableSuspenseLayoutEffectSemantics = true;
+
+// SSR experiments
+export const enableSelectiveHydration = true;
+
+
+export const enableLegacyFBSupport = false;

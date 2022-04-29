@@ -1,3 +1,4 @@
+/* eslint-disable no-constant-condition */
 /* eslint-disable no-prototype-builtins */
 /* eslint-disable no-unused-labels */
 import { deletedTreeCleanUpLevel, enableCreateEventHandleAPI, enableProfilerCommitHooks, enableProfilerTimer, enableScopeAPI, enableStrictEffects, enableSuspenseLayoutEffectSemantics } from "../../shared/ReactFeatureFlags";
@@ -8,10 +9,10 @@ import {
   setCurrentFiber as setCurrentDebugFiberInDEV,
 } from './ReactCurrentFiber';
 import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
-import { FunctionComponent, ForwardRef, SimpleMemoComponent, HostComponent, ClassComponent, HostPortal, HostRoot, HostText, IncompleteClassComponent, SuspenseComponent, OffscreenComponent, ScopeComponent } from "./ReactWorkTags";
+import { FunctionComponent, ForwardRef, SimpleMemoComponent, HostComponent, ClassComponent, HostPortal, HostRoot, HostText, IncompleteClassComponent, SuspenseComponent, OffscreenComponent, ScopeComponent, LegacyHiddenComponent, MemoComponent, Profiler } from "./ReactWorkTags";
 import { recordLayoutEffectDuration, recordPassiveEffectDuration, startLayoutEffectTimer, startPassiveEffectTimer } from "./ReactProfilerTimer.old";
 import { FunctionComponentUpdateQueue } from "./ReactFiberHooks.old";
-import { beforeActiveInstanceBlur, clearContainer, commitMount, detachDeletedInstance, getPublicInstance, Instance, prepareForCommit, supportsMutation } from "./ReactFiberHostConfig";
+import { beforeActiveInstanceBlur, clearContainer, commitHydratedContainer, commitMount, commitTextUpdate, commitUpdate, Container, detachDeletedInstance, getPublicInstance, hideInstance, hideTextInstance, Instance, prepareForCommit, resetTextContent, supportsHydration, supportsMutation, supportsPersistence, TextInstance, unhideInstance, unhideTextInstance, UpdatePayload } from "./ReactFiberHostConfig";
 import {
   NoFlags as NoHookEffect,
   HasEffect as HookHasEffect,
@@ -20,7 +21,7 @@ import {
   HookFlags,
 } from './ReactHookEffectTags';
 import { clearCaughtError, invokeGuardedCallback } from "../../shared/ReactErrorUtils";
-import { captureCommitPhaseError } from "./ReactFiberWorkLoop.old";
+import { captureCommitPhaseError, markCommitTimeOfFallback } from "./ReactFiberWorkLoop.old";
 import invariant from "../../shared/invariant";
 import getComponentNameFromFiber from "./getComponentNameFromFiber";
 import { didWarnAboutReassigningProps } from "./ReactFiberBeginWork.old";
@@ -1039,126 +1040,122 @@ function commitMutationEffectsOnFiber(finishedWork: Fiber, root: FiberRoot) {
   // because of the shared reconcilation logic below.
   const flags = finishedWork.flags;
 
-  // eslint-disable-next-line no-constant-condition
-  if (true) {
-    return
+
+  if (flags & ContentReset) {
+    commitResetTextContent(finishedWork);
   }
 
-  // if (flags & ContentReset) {
-  //   commitResetTextContent(finishedWork);
-  // }
+  if (flags & Ref) {
+    const current = finishedWork.alternate;
+    if (current !== null) {
+      commitDetachRef(current);
+    }
+    if (enableScopeAPI) {
+      // TODO: This is a temporary solution that allowed us to transition away
+      // from React Flare on www.
+      if (finishedWork.tag === ScopeComponent) {
+        commitAttachRef(finishedWork);
+      }
+    }
+  }
 
-  // if (flags & Ref) {
-  //   const current = finishedWork.alternate;
-  //   if (current !== null) {
-  //     commitDetachRef(current);
-  //   }
-  //   if (enableScopeAPI) {
-  //     // TODO: This is a temporary solution that allowed us to transition away
-  //     // from React Flare on www.
-  //     if (finishedWork.tag === ScopeComponent) {
-  //       commitAttachRef(finishedWork);
-  //     }
-  //   }
-  // }
+  if (flags & Visibility) {
+    // switch (finishedWork.tag) {
+    //   case SuspenseComponent: {
+    //     const newState: OffscreenState | null = finishedWork.memoizedState;
+    //     const isHidden = newState !== null;
+    //     if (isHidden) {
+    //       const current = finishedWork.alternate;
+    //       const wasHidden = current !== null && current.memoizedState !== null;
+    //       if (!wasHidden) {
+    //         // TODO: Move to passive phase
+    //         markCommitTimeOfFallback();
+    //       }
+    //     }
+    //     break;
+    //   }
+    //   case OffscreenComponent: {
+    //     const newState: OffscreenState | null = finishedWork.memoizedState;
+    //     const isHidden = newState !== null;
+    //     const current = finishedWork.alternate;
+    //     const wasHidden = current !== null && current.memoizedState !== null;
+    //     const offscreenBoundary: Fiber = finishedWork;
 
-  // if (flags & Visibility) {
-  //   switch (finishedWork.tag) {
-  //     case SuspenseComponent: {
-  //       const newState: OffscreenState | null = finishedWork.memoizedState;
-  //       const isHidden = newState !== null;
-  //       if (isHidden) {
-  //         const current = finishedWork.alternate;
-  //         const wasHidden = current !== null && current.memoizedState !== null;
-  //         if (!wasHidden) {
-  //           // TODO: Move to passive phase
-  //           markCommitTimeOfFallback();
-  //         }
-  //       }
-  //       break;
-  //     }
-  //     case OffscreenComponent: {
-  //       const newState: OffscreenState | null = finishedWork.memoizedState;
-  //       const isHidden = newState !== null;
-  //       const current = finishedWork.alternate;
-  //       const wasHidden = current !== null && current.memoizedState !== null;
-  //       const offscreenBoundary: Fiber = finishedWork;
+    //     if (supportsMutation) {
+    //       // TODO: This needs to run whenever there's an insertion or update
+    //       // inside a hidden Offscreen tree.
+    //       hideOrUnhideAllChildren(offscreenBoundary, isHidden);
+    //     }
 
-  //       if (supportsMutation) {
-  //         // TODO: This needs to run whenever there's an insertion or update
-  //         // inside a hidden Offscreen tree.
-  //         hideOrUnhideAllChildren(offscreenBoundary, isHidden);
-  //       }
+    //     if (enableSuspenseLayoutEffectSemantics) {
+    //       if (isHidden) {
+    //         if (!wasHidden) {
+    //           if ((offscreenBoundary.mode & ConcurrentMode) !== NoMode) {
+    //             nextEffect = offscreenBoundary;
+    //             let offscreenChild = offscreenBoundary.child;
+    //             while (offscreenChild !== null) {
+    //               nextEffect = offscreenChild;
+    //               disappearLayoutEffects_begin(offscreenChild);
+    //               offscreenChild = offscreenChild.sibling;
+    //             }
+    //           }
+    //         }
+    //       } else {
+    //         if (wasHidden) {
+    //           // TODO: Move re-appear call here for symmetry?
+    //         }
+    //       }
+    //       break;
+    //     }
+    //   }
+    // }
+  }
 
-  //       if (enableSuspenseLayoutEffectSemantics) {
-  //         if (isHidden) {
-  //           if (!wasHidden) {
-  //             if ((offscreenBoundary.mode & ConcurrentMode) !== NoMode) {
-  //               nextEffect = offscreenBoundary;
-  //               let offscreenChild = offscreenBoundary.child;
-  //               while (offscreenChild !== null) {
-  //                 nextEffect = offscreenChild;
-  //                 disappearLayoutEffects_begin(offscreenChild);
-  //                 offscreenChild = offscreenChild.sibling;
-  //               }
-  //             }
-  //           }
-  //         } else {
-  //           if (wasHidden) {
-  //             // TODO: Move re-appear call here for symmetry?
-  //           }
-  //         }
-  //         break;
-  //       }
-  //     }
-  //   }
-  // }
+  // The following switch statement is only concerned about placement,
+  // updates, and deletions. To avoid needing to add a case for every possible
+  // bitmap value, we remove the secondary effects from the effect tag and
+  // switch on that value.
+  const primaryFlags = flags & (Placement | Update | Hydrating);
+  outer: switch (primaryFlags) {
+    case Placement: {
+      commitPlacement(finishedWork);
+      // Clear the "placement" from effect tag so that we know that this is
+      // inserted, before any life-cycles like componentDidMount gets called.
+      // TODO: findDOMNode doesn't rely on this any more but isMounted does
+      // and isMounted is deprecated anyway so we should be able to kill this.
+      finishedWork.flags &= ~Placement;
+      break;
+    }
+    case PlacementAndUpdate: {
+      // Placement
+      commitPlacement(finishedWork);
+      // Clear the "placement" from effect tag so that we know that this is
+      // inserted, before any life-cycles like componentDidMount gets called.
+      finishedWork.flags &= ~Placement;
 
-  // // The following switch statement is only concerned about placement,
-  // // updates, and deletions. To avoid needing to add a case for every possible
-  // // bitmap value, we remove the secondary effects from the effect tag and
-  // // switch on that value.
-  // const primaryFlags = flags & (Placement | Update | Hydrating);
-  // outer: switch (primaryFlags) {
-  //   case Placement: {
-  //     commitPlacement(finishedWork);
-  //     // Clear the "placement" from effect tag so that we know that this is
-  //     // inserted, before any life-cycles like componentDidMount gets called.
-  //     // TODO: findDOMNode doesn't rely on this any more but isMounted does
-  //     // and isMounted is deprecated anyway so we should be able to kill this.
-  //     finishedWork.flags &= ~Placement;
-  //     break;
-  //   }
-  //   case PlacementAndUpdate: {
-  //     // Placement
-  //     commitPlacement(finishedWork);
-  //     // Clear the "placement" from effect tag so that we know that this is
-  //     // inserted, before any life-cycles like componentDidMount gets called.
-  //     finishedWork.flags &= ~Placement;
+      // Update
+      const current = finishedWork.alternate;
+      commitWork(current, finishedWork);
+      break;
+    }
+    case Hydrating: {
+      finishedWork.flags &= ~Hydrating;
+      break;
+    }
+    case HydratingAndUpdate: {
+      finishedWork.flags &= ~Hydrating;
 
-  //     // Update
-  //     const current = finishedWork.alternate;
-  //     commitWork(current, finishedWork);
-  //     break;
-  //   }
-  //   case Hydrating: {
-  //     finishedWork.flags &= ~Hydrating;
-  //     break;
-  //   }
-  //   case HydratingAndUpdate: {
-  //     finishedWork.flags &= ~Hydrating;
-
-  //     // Update
-  //     const current = finishedWork.alternate;
-  //     commitWork(current, finishedWork);
-  //     break;
-  //   }
-  //   case Update: {
-  //     const current = finishedWork.alternate;
-  //     commitWork(current, finishedWork);
-  //     break;
-  //   }
-  // }
+      // Update
+      const current = finishedWork.alternate;
+      commitWork(current, finishedWork);
+      break;
+    }
+    case Update: {
+      const current = finishedWork.alternate;
+      commitWork(current, finishedWork);
+      break;
+    }
+  }
 }
 
 
@@ -1868,3 +1865,304 @@ function safelyDetachRef(current: Fiber, nearestMountedAncestor: Fiber | null) {
     }
   }
 }
+
+function commitResetTextContent(current: Fiber) {
+  if (!supportsMutation) {
+    return;
+  }
+  resetTextContent(current.stateNode);
+}
+
+function hideOrUnhideAllChildren(finishedWork: any, isHidden: boolean) {
+  // Only hide or unhide the top-most host nodes.
+  let hostSubtreeRoot = null;
+
+  if (supportsMutation) {
+    // We only have the top Fiber that was inserted but we need to recurse down its
+    // children to find all the terminal nodes.
+    let node: Fiber = finishedWork;
+    while (true) {
+      if (node.tag === HostComponent) {
+        if (hostSubtreeRoot === null) {
+          hostSubtreeRoot = node;
+
+          const instance = node.stateNode;
+          if (isHidden) {
+            hideInstance(instance);
+          } else {
+            unhideInstance(node.stateNode, node.memoizedProps);
+          }
+        }
+      } else if (node.tag === HostText) {
+        if (hostSubtreeRoot === null) {
+          const instance = node.stateNode;
+          if (isHidden) {
+            hideTextInstance(instance);
+          } else {
+            unhideTextInstance(instance, node.memoizedProps);
+          }
+        }
+      } else if (
+        (node.tag === OffscreenComponent ||
+          node.tag === LegacyHiddenComponent) &&
+        (node.memoizedState as OffscreenState) !== null &&
+        node !== finishedWork
+      ) {
+        // Found a nested Offscreen component that is hidden.
+        // Don't search any deeper. This tree should remain hidden.
+      } else if (node.child !== null) {
+        node.child.return = node;
+        node = node.child;
+        continue;
+      }
+
+      if (node === finishedWork) {
+        return;
+      }
+      while (node.sibling === null) {
+        if (node.return === null || node.return === finishedWork) {
+          return;
+        }
+
+        if (hostSubtreeRoot === node) {
+          hostSubtreeRoot = null;
+        }
+
+        node = node.return;
+      }
+
+      if (hostSubtreeRoot === node) {
+        hostSubtreeRoot = null;
+      }
+
+      node.sibling.return = node.return;
+      node = node.sibling;
+    }
+  }
+}
+
+function commitWork(current: Fiber | null, finishedWork: Fiber): void {
+  if (!supportsMutation) {
+    switch (finishedWork.tag) {
+      case FunctionComponent:
+      case ForwardRef:
+      case MemoComponent:
+      case SimpleMemoComponent: {
+        // Layout effects are destroyed during the mutation phase so that all
+        // destroy functions for all fibers are called before any create functions.
+        // This prevents sibling component effects from interfering with each other,
+        // e.g. a destroy function in one component should never override a ref set
+        // by a create function in another component during the same commit.
+        // TODO: Check if we're inside an Offscreen subtree that disappeared
+        // during this commit. If so, we would have already unmounted its
+        // layout hooks. (However, since we null out the `destroy` function
+        // right before calling it, the behavior is already correct, so this
+        // would mostly be for modeling purposes.)
+        if (
+          enableProfilerTimer &&
+          enableProfilerCommitHooks &&
+          finishedWork.mode & ProfileMode
+        ) {
+          try {
+            startLayoutEffectTimer();
+            commitHookEffectListUnmount(
+              HookLayout | HookHasEffect,
+              finishedWork,
+              finishedWork.return,
+            );
+          } finally {
+            recordLayoutEffectDuration(finishedWork);
+          }
+        } else {
+          commitHookEffectListUnmount(
+            HookLayout | HookHasEffect,
+            finishedWork,
+            finishedWork.return,
+          );
+        }
+        return;
+      }
+      case Profiler: {
+        return;
+      }
+      // case SuspenseComponent: {
+      //   commitSuspenseCallback(finishedWork);
+      //   attachSuspenseRetryListeners(finishedWork);
+      //   return;
+      // }
+      // case SuspenseListComponent: {
+      //   attachSuspenseRetryListeners(finishedWork);
+      //   return;
+      // }
+      case HostRoot: {
+        if (supportsHydration) {
+          const root: FiberRoot = finishedWork.stateNode;
+          if (root.hydrate) {
+            // We've just hydrated. No need to hydrate again.
+            root.hydrate = false;
+            commitHydratedContainer(root.containerInfo);
+          }
+        }
+        break;
+      }
+      case OffscreenComponent:
+      case LegacyHiddenComponent: {
+        return;
+      }
+    }
+
+    commitContainer(finishedWork);
+    return;
+  }
+
+  switch (finishedWork.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case MemoComponent:
+    case SimpleMemoComponent: {
+      // Layout effects are destroyed during the mutation phase so that all
+      // destroy functions for all fibers are called before any create functions.
+      // This prevents sibling component effects from interfering with each other,
+      // e.g. a destroy function in one component should never override a ref set
+      // by a create function in another component during the same commit.
+      if (
+        enableProfilerTimer &&
+        enableProfilerCommitHooks &&
+        finishedWork.mode & ProfileMode
+      ) {
+        try {
+          startLayoutEffectTimer();
+          commitHookEffectListUnmount(
+            HookLayout | HookHasEffect,
+            finishedWork,
+            finishedWork.return,
+          );
+        } finally {
+          recordLayoutEffectDuration(finishedWork);
+        }
+      } else {
+        commitHookEffectListUnmount(
+          HookLayout | HookHasEffect,
+          finishedWork,
+          finishedWork.return,
+        );
+      }
+      return;
+    }
+    case ClassComponent: {
+      return;
+    }
+    case HostComponent: {
+      const instance: Instance = finishedWork.stateNode;
+      if (instance != null) {
+        // Commit the work prepared earlier.
+        const newProps = finishedWork.memoizedProps;
+        // For hydration we reuse the update path but we treat the oldProps
+        // as the newProps. The updatePayload will contain the real change in
+        // this case.
+        const oldProps = current !== null ? current.memoizedProps : newProps;
+        const type = finishedWork.type;
+        // TODO: Type the updateQueue to be specific to host components.
+        const updatePayload: null | UpdatePayload = (finishedWork.updateQueue as any);
+        finishedWork.updateQueue = null;
+        if (updatePayload !== null) {
+          commitUpdate(
+            instance,
+            updatePayload,
+            type,
+            oldProps,
+            newProps,
+            finishedWork,
+          );
+        }
+      }
+      return;
+    }
+    case HostText: {
+      invariant(
+        finishedWork.stateNode !== null,
+        'This should have a text node initialized. This error is likely ' +
+          'caused by a bug in React. Please file an issue.',
+      );
+      const textInstance: TextInstance = finishedWork.stateNode;
+      const newText: string = finishedWork.memoizedProps;
+      // For hydration we reuse the update path but we treat the oldProps
+      // as the newProps. The updatePayload will contain the real change in
+      // this case.
+      const oldText: string =
+        current !== null ? current.memoizedProps : newText;
+      commitTextUpdate(textInstance, oldText, newText);
+      return;
+    }
+    case HostRoot: {
+      if (supportsHydration) {
+        const root: FiberRoot = finishedWork.stateNode;
+        if (root.hydrate) {
+          // We've just hydrated. No need to hydrate again.
+          root.hydrate = false;
+          commitHydratedContainer(root.containerInfo);
+        }
+      }
+      return;
+    }
+    case Profiler: {
+      return;
+    }
+    // case SuspenseComponent: {
+    //   commitSuspenseCallback(finishedWork);
+    //   attachSuspenseRetryListeners(finishedWork);
+    //   return;
+    // }
+    // case SuspenseListComponent: {
+    //   attachSuspenseRetryListeners(finishedWork);
+    //   return;
+    // }
+    case IncompleteClassComponent: {
+      return;
+    }
+    // case ScopeComponent: {
+    //   if (enableScopeAPI) {
+    //     const scopeInstance = finishedWork.stateNode;
+    //     prepareScopeUpdate(scopeInstance, finishedWork);
+    //     return;
+    //   }
+    //   break;
+    // }
+  }
+  invariant(
+    false,
+    'This unit of work tag should not have side-effects. This error is ' +
+      'likely caused by a bug in React. Please file an issue.',
+  );
+}
+
+function commitContainer(finishedWork: Fiber) {
+  if (!supportsPersistence) {
+    return;
+  }
+
+  // switch (finishedWork.tag) {
+  //   case ClassComponent:
+  //   case HostComponent:
+  //   case HostText: {
+  //     return;
+  //   }
+  //   case HostRoot:
+  //   case HostPortal: {
+  //     const portalOrRoot: {
+  //       containerInfo: Container,
+  //       pendingChildren: ChildSet,
+  //     } = finishedWork.stateNode;
+  //     const {containerInfo, pendingChildren} = portalOrRoot;
+  //     replaceContainerChildren(containerInfo, pendingChildren);
+  //     return;
+  //   }
+  // }
+  // invariant(
+  //   false,
+  //   'This unit of work tag should not have side-effects. This error is ' +
+  //     'likely caused by a bug in React. Please file an issue.',
+  // );
+}
+
+
