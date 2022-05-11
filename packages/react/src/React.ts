@@ -6,6 +6,9 @@ import {
 } from './ReactElement';
 import {Component} from './ReactBaseClasses'
 
+import {createContext} from './ReactContext';
+
+
 const createElement = __DEV__ ? createElementWithValidation : createElementProd;
 
 const Children = {
@@ -15,7 +18,8 @@ const Children = {
 export {
   Children,
   createElement,
-  Component
+  Component,
+  createContext
 };
 
-export {useState, useEffect, useLayoutEffect} from './ReactHooks'
+export {useState, useEffect, useLayoutEffect, useContext} from './ReactHooks'

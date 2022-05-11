@@ -2,6 +2,9 @@ import * as React from '../packages/react'
 
 import * as ReactDOM from '../packages/react-dom'
 
+
+const Context = React.createElement(null)
+
 const Child = () => {
   const [state, setState] = React.useState(0)
   console.log(state)
@@ -16,6 +19,7 @@ const Child = () => {
   React.useLayoutEffect(() => {
     console.log('aaa')
   },[state])
+
   
   return React.createElement('div', {}, ['1'])
 }

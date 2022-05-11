@@ -16,7 +16,7 @@ import {
   isContextProvider as isLegacyContextProvider,
   pushTopLevelContextObject,
 } from './ReactFiberContext.old';
-import { checkIfContextChanged, prepareToReadContext, propagateContextChange } from "./ReactFiberNewContext.old";
+import { checkIfContextChanged, prepareToReadContext, propagateContextChange, readContext } from "./ReactFiberNewContext.old";
 import { markComponentRenderStarted, markComponentRenderStopped } from "./SchedulingProfiler";
 import ReactSharedInternals from "../../shared/ReactSharedInternals";
 import { setIsRendering } from "./ReactCurrentFiber";
@@ -31,13 +31,22 @@ import { pushHostContainer, pushHostContext } from "./ReactFiberHostContext.old"
 import { pushCacheProvider, Cache, pushRootCachePool, CacheContext } from "./ReactFiberCacheComponent.old";
 import { enterHydrationState, resetHydrationState, tryToClaimNextHydratableInstance } from "./ReactFiberHydrationContext.old";
 import { markSkippedUpdateLanes } from "./ReactFiberWorkLoop.old";
-import { shouldSetTextContent, supportsHydration } from "./ReactFiberHostConfig";
-import { MutableSource } from "../../shared/ReactTypes";
+import { isPrimaryRenderer, shouldSetTextContent, supportsHydration } from "./ReactFiberHostConfig";
+import { MutableSource, ReactContext, ReactProviderType } from "../../shared/ReactTypes";
 import { setWorkInProgressVersion } from "./ReactMutableSource.old";
 import { resolveDefaultProps } from "./ReactFiberLazyComponent.old";
+import objectIs from "../../shared/objectIs";
+import { createCursor, push, StackCursor } from "./ReactFiberStack.old";
 
 const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 
+const valueCursor: StackCursor<mixed> = createCursor(null);
+
+let rendererSigil: any;
+if (__DEV__) {
+  // Use this to detect multiple renderers using the same context
+  rendererSigil = {};
+}
 
 let didReceiveUpdate = false;
 
@@ -869,10 +878,10 @@ export function beginWork(
     //   return updateMode(current, workInProgress, renderLanes);
     // case Profiler:
     //   return updateProfiler(current, workInProgress, renderLanes);
-    // case ContextProvider:
-    //   return updateContextProvider(current, workInProgress, renderLanes);
-    // case ContextConsumer:
-    //   return updateContextConsumer(current, workInProgress, renderLanes);
+    case ContextProvider:
+      return updateContextProvider(current, workInProgress, renderLanes);
+    case ContextConsumer:
+      return updateContextConsumer(current, workInProgress, renderLanes);
     // case MemoComponent: {
     //   const type = workInProgress.type;
     //   const unresolvedProps = workInProgress.pendingProps;
@@ -1199,3 +1208,181 @@ function updateHostText(current: any, workInProgress: any) {
   return null;
 }
 
+export function pushProvider<T>(
+  providerFiber: Fiber,
+  context: ReactContext<T>,
+  nextValue: T,
+): void {
+  if (isPrimaryRenderer) {
+    push(valueCursor, context._currentValue, providerFiber);
+
+    context._currentValue = nextValue;
+    if (__DEV__) {
+      if (
+        context._currentRenderer !== undefined &&
+        context._currentRenderer !== null &&
+        context._currentRenderer !== rendererSigil
+      ) {
+        console.error(
+          'Detected multiple renderers concurrently rendering the ' +
+            'same context provider. This is currently unsupported.',
+        );
+      }
+      context._currentRenderer = rendererSigil;
+    }
+  } else {
+    push(valueCursor, context._currentValue2, providerFiber);
+
+    context._currentValue2 = nextValue;
+    if (__DEV__) {
+      if (
+        context._currentRenderer2 !== undefined &&
+        context._currentRenderer2 !== null &&
+        context._currentRenderer2 !== rendererSigil
+      ) {
+        console.error(
+          'Detected multiple renderers concurrently rendering the ' +
+            'same context provider. This is currently unsupported.',
+        );
+      }
+      context._currentRenderer2 = rendererSigil;
+    }
+  }
+}
+
+let hasWarnedAboutUsingNoValuePropOnContextProvider = false;
+
+function updateContextProvider(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  renderLanes: Lanes,
+) {
+  const providerType: ReactProviderType<any> = workInProgress.type;
+  const context: ReactContext<any> = providerType._context;
+
+  const newProps = workInProgress.pendingProps;
+  const oldProps = workInProgress.memoizedProps;
+
+  const newValue = newProps.value;
+
+  if (__DEV__) {
+    if (!('value' in newProps)) {
+      if (!hasWarnedAboutUsingNoValuePropOnContextProvider) {
+        hasWarnedAboutUsingNoValuePropOnContextProvider = true;
+        console.error(
+          'The `value` prop is required for the `<Context.Provider>`. Did you misspell it or forget to pass it?',
+        );
+      }
+    }
+    const providerPropTypes = workInProgress.type.propTypes;
+
+    if (providerPropTypes) {
+      checkPropTypes(providerPropTypes, newProps, 'prop', 'Context.Provider');
+    }
+  }
+
+  pushProvider(workInProgress, context, newValue);
+
+  if (enableLazyContextPropagation) {
+    // In the lazy propagation implementation, we don't scan for matching
+    // consumers until something bails out, because until something bails out
+    // we're going to visit those nodes, anyway. The trade-off is that it shifts
+    // responsibility to the consumer to track whether something has changed.
+  } else {
+    if (oldProps !== null) {
+      const oldValue = oldProps.value;
+      if (objectIs(oldValue, newValue)) {
+        // No change. Bailout early if children are the same.
+        if (
+          oldProps.children === newProps.children &&
+          !hasLegacyContextChanged()
+        ) {
+          return bailoutOnAlreadyFinishedWork(
+            current,
+            workInProgress,
+            renderLanes,
+          );
+        }
+      } else {
+        // The context value changed. Search for matching consumers and schedule
+        // them to update.
+        propagateContextChange(workInProgress, context, renderLanes);
+      }
+    }
+  }
+
+  const newChildren = newProps.children;
+  reconcileChildren(current, workInProgress, newChildren, renderLanes);
+  return workInProgress.child;
+}
+
+let hasWarnedAboutUsingContextAsConsumer = false;
+
+function updateContextConsumer(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  renderLanes: Lanes,
+) {
+  let context: ReactContext<any> = workInProgress.type;
+  // The logic below for Context differs depending on PROD or DEV mode. In
+  // DEV mode, we create a separate object for Context.Consumer that acts
+  // like a proxy to Context. This proxy object adds unnecessary code in PROD
+  // so we use the old behaviour (Context.Consumer references Context) to
+  // reduce size and overhead. The separate object references context via
+  // a property called "_context", which also gives us the ability to check
+  // in DEV mode if this property exists or not and warn if it does not.
+  if (__DEV__) {
+    if ((context as any)._context === undefined) {
+      // This may be because it's a Context (rather than a Consumer).
+      // Or it may be because it's older React where they're the same thing.
+      // We only want to warn if we're sure it's a new React.
+      if (context !== context.Consumer) {
+        if (!hasWarnedAboutUsingContextAsConsumer) {
+          hasWarnedAboutUsingContextAsConsumer = true;
+          console.error(
+            'Rendering <Context> directly is not supported and will be removed in ' +
+              'a future major release. Did you mean to render <Context.Consumer> instead?',
+          );
+        }
+      }
+    } else {
+      context = (context as any)._context;
+    }
+  }
+  const newProps = workInProgress.pendingProps;
+  const render = newProps.children;
+
+  if (__DEV__) {
+    if (typeof render !== 'function') {
+      console.error(
+        'A context consumer was rendered with multiple children, or a child ' +
+          "that isn't a function. A context consumer expects a single child " +
+          'that is a function. If you did pass a function, make sure there ' +
+          'is no trailing or leading whitespace around it.',
+      );
+    }
+  }
+
+  prepareToReadContext(workInProgress, renderLanes);
+  const newValue = readContext(context);
+  if (enableSchedulingProfiler) {
+    markComponentRenderStarted(workInProgress);
+  }
+  let newChildren;
+  if (__DEV__) {
+    ReactCurrentOwner.current = workInProgress;
+    setIsRendering(true);
+    newChildren = render(newValue);
+    setIsRendering(false);
+  } else {
+    newChildren = render(newValue);
+  }
+  if (enableSchedulingProfiler) {
+    markComponentRenderStopped();
+  }
+
+  // React DevTools reads this flag.
+  workInProgress.flags |= PerformedWork;
+  reconcileChildren(current, workInProgress, newChildren, renderLanes);
+  return workInProgress.child;
+}

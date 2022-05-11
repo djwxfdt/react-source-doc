@@ -1,4 +1,5 @@
 import { Dispatcher } from "../../react-reconciler/src/ReactInternalTypes";
+import { ReactContext } from "../../shared/ReactTypes";
 import ReactCurrentDispatcher from "./ReactCurrentDispatcher";
 
 type Dispatch<A> = (a: A) => void;
@@ -47,4 +48,28 @@ export function useLayoutEffect(
 ): void {
   const dispatcher = resolveDispatcher();
   return dispatcher.useLayoutEffect(create, deps);
+}
+
+export function useContext<T>(Context: ReactContext<T>): T {
+  const dispatcher = resolveDispatcher();
+  if (__DEV__) {
+    // TODO: add a more generic warning for invalid values.
+    if ((Context as any)._context !== undefined) {
+      const realContext = (Context as any)._context;
+      // Don't deduplicate because this legitimately causes bugs
+      // and nobody should be using this in existing code.
+      if (realContext.Consumer === Context) {
+        console.error(
+          'Calling useContext(Context.Consumer) is not supported, may cause bugs, and will be ' +
+            'removed in a future major release. Did you mean to call useContext(Context) instead?',
+        );
+      } else if (realContext.Provider === Context) {
+        console.error(
+          'Calling useContext(Context.Provider) is not supported. ' +
+            'Did you mean to call useContext(Context) instead?',
+        );
+      }
+    }
+  }
+  return dispatcher.useContext(Context);
 }

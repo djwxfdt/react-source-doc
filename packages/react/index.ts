@@ -4,5 +4,7 @@ export {
   useState,
   useEffect,
   useLayoutEffect,
-  createElement
+  createElement,
+  useContext,
+  createContext
 } from './src/React';
