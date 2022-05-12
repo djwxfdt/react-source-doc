@@ -491,6 +491,15 @@ function updateHookTypesDev() {
 }
 
 if (__DEV__) {
+  const warnInvalidHookAccess = () => {
+    console.error(
+      'Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. ' +
+        'You can only call Hooks at the top level of your React function. ' +
+        'For more information, see ' +
+        'https://reactjs.org/link/rules-of-hooks',
+    );
+  };
+
   HooksDispatcherOnMountInDEV = {
     readContext<T>(context: ReactContext<T>): T {
       return readContext(context);
@@ -526,6 +535,11 @@ if (__DEV__) {
       checkDepsAreArrayDev(deps);
       return mountLayoutEffect(create, deps);
     },
+    useContext<T>(context: ReactContext<T>): T {
+      currentHookNameInDev = 'useContext';
+      mountHookTypesDev();
+      return readContext(context);
+    },
   } as any;
 
   HooksDispatcherOnUpdateInDEV = {
@@ -558,6 +572,23 @@ if (__DEV__) {
       updateHookTypesDev();
       return updateLayoutEffect(create, deps);
     },
+  } as any
+
+  InvalidNestedHooksDispatcherOnUpdateInDEV = {
+    useContext<T>(context: ReactContext<T>): T {
+      currentHookNameInDev = 'useContext';
+      warnInvalidHookAccess();
+      updateHookTypesDev();
+      return readContext(context);
+    },
+  } as any
+
+  HooksDispatcherOnMountWithHookTypesInDEV = {
+    useContext<T>(context: ReactContext<T>): T {
+      currentHookNameInDev = 'useContext';
+      updateHookTypesDev();
+      return readContext(context);
+    }
   } as any
 }
 

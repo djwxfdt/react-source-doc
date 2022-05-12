@@ -3,25 +3,28 @@ import * as React from '../packages/react'
 import * as ReactDOM from '../packages/react-dom'
 
 
-const Context = React.createElement(null)
+const Context = React.createContext<number | null>(null)
 
-const Child = () => {
+const Parent = () => {
   const [state, setState] = React.useState(0)
-  console.log(state)
-  setTimeout(() => {
-    setState(1)
-  }, 100)
 
   React.useEffect(() => {
-    console.log('zzz')
-  },[])
+    setTimeout(() => {
+      debugger
+      setState(1)
+    }, 1000)
+  }, [])
 
-  React.useLayoutEffect(() => {
-    console.log('aaa')
-  },[state])
+  return React.createElement(Context.Provider, { value: state }, React.createElement(Child, {}))
+}
 
+const Child = () => {
   
+  const context = React.useContext(Context)
+
+  console.log(context)
+
   return React.createElement('div', {}, ['1'])
 }
 
-ReactDOM.render(React.createElement(Child), document.getElementById('app')!)
+ReactDOM.render(React.createElement(Parent), document.getElementById('app')!)

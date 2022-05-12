@@ -22,6 +22,7 @@ import { getHostContext, getRootHostContainer, popHostContainer, popHostContext 
 import { popCacheProvider, popRootCachePool } from "./ReactFiberCacheComponent.old";
 import { popHydrationState, prepareToHydrateHostInstance, prepareToHydrateHostTextInstance } from "./ReactFiberHydrationContext.old";
 import { Container, Instance, Props, Type, prepareUpdate, createInstance, appendInitialChild, finalizeInitialChildren, createTextInstance } from "./ReactFiberHostConfig";
+import { popProvider } from "./ReactFiberNewContext.old";
 
 let updateHostContainer: (arg0: Fiber | null, arg1: Fiber) => void
 
@@ -600,12 +601,14 @@ export function completeWork(
     //   }
     //   bubbleProperties(workInProgress);
     //   return null;
-    // case ContextProvider:
-    //   // Pop provider fiber
-    //   const context: ReactContext<any> = workInProgress.type._context;
-    //   popProvider(context, workInProgress);
-    //   bubbleProperties(workInProgress);
-    //   return null;
+    case ContextProvider:{
+      // Pop provider fiber
+      const context: ReactContext<any> = workInProgress.type._context;
+      popProvider(context, workInProgress);
+      bubbleProperties(workInProgress);
+      return null;
+    }
+      
     // case IncompleteClassComponent: {
     //   // Same as class component case. I put it down here so that the tags are
     //   // sequential to ensure this switch is compiled to a jump table.

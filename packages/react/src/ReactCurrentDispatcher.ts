@@ -14,11 +14,21 @@ import { Dispatcher } from "../../react-reconciler/src/ReactInternalTypes";
   * 调度员
   */
  const ReactCurrentDispatcher = {
+
+  _current: null as null | Dispatcher,
    /**
     * @internal
     * @type {ReactComponent}
     */
-   current: null as null | Dispatcher,
+   get current() {
+     return this._current
+   },
+
+   set current(v) {
+     
+    console.trace('ReactCurrentDispatcher', v)
+    this._current = v
+   }
  };
  
  export default ReactCurrentDispatcher;
