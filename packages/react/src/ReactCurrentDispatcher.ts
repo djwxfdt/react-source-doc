@@ -26,7 +26,6 @@ import { Dispatcher } from "../../react-reconciler/src/ReactInternalTypes";
 
    set current(v) {
      
-    console.trace('ReactCurrentDispatcher', v)
     this._current = v
    }
  };

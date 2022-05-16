@@ -10,7 +10,6 @@ const Parent = () => {
 
   React.useEffect(() => {
     setTimeout(() => {
-      debugger
       setState(1)
     }, 1000)
   }, [])
@@ -24,7 +23,7 @@ const Child = () => {
 
   console.log(context)
 
-  return React.createElement('div', {}, ['1'])
+  return React.createElement('div', {key: 'z'}, '1')
 }
 
 ReactDOM.render(React.createElement(Parent), document.getElementById('app')!)

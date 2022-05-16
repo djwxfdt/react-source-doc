@@ -9,10 +9,10 @@ import {
   setCurrentFiber as setCurrentDebugFiberInDEV,
 } from './ReactCurrentFiber';
 import { ConcurrentMode, NoMode, ProfileMode } from "./ReactTypeOfMode";
-import { FunctionComponent, ForwardRef, SimpleMemoComponent, HostComponent, ClassComponent, HostPortal, HostRoot, HostText, IncompleteClassComponent, SuspenseComponent, OffscreenComponent, ScopeComponent, LegacyHiddenComponent, MemoComponent, Profiler } from "./ReactWorkTags";
+import { FunctionComponent, ForwardRef, SimpleMemoComponent, HostComponent, ClassComponent, HostPortal, HostRoot, HostText, IncompleteClassComponent, SuspenseComponent, OffscreenComponent, ScopeComponent, LegacyHiddenComponent, MemoComponent, Profiler, DehydratedFragment } from "./ReactWorkTags";
 import { recordLayoutEffectDuration, recordPassiveEffectDuration, startLayoutEffectTimer, startPassiveEffectTimer } from "./ReactProfilerTimer.old";
 import { FunctionComponentUpdateQueue } from "./ReactFiberHooks.old";
-import { beforeActiveInstanceBlur, clearContainer, commitHydratedContainer, commitMount, commitTextUpdate, commitUpdate, Container, detachDeletedInstance, getPublicInstance, hideInstance, hideTextInstance, Instance, prepareForCommit, resetTextContent, supportsHydration, supportsMutation, supportsPersistence, TextInstance, unhideInstance, unhideTextInstance, UpdatePayload } from "./ReactFiberHostConfig";
+import { appendChild, appendChildToContainer, beforeActiveInstanceBlur, clearContainer, commitHydratedContainer, commitMount, commitTextUpdate, commitUpdate, Container, detachDeletedInstance, getPublicInstance, hideInstance, hideTextInstance, insertBefore, insertInContainerBefore, Instance, prepareForCommit, resetTextContent, supportsHydration, supportsMutation, supportsPersistence, TextInstance, unhideInstance, unhideTextInstance, UpdatePayload } from "./ReactFiberHostConfig";
 import {
   NoFlags as NoHookEffect,
   HasEffect as HookHasEffect,
@@ -1016,21 +1016,21 @@ function commitPlacement(finishedWork: Fiber): void {
           'in React. Please file an issue.',
       );
   }
-  // if (parentFiber.flags & ContentReset) {
-  //   // Reset the text content of the parent before doing any insertions
-  //   resetTextContent(parent);
-  //   // Clear ContentReset from the effect tag
-  //   parentFiber.flags &= ~ContentReset;
-  // }
+  if (parentFiber!.flags & ContentReset) {
+    // Reset the text content of the parent before doing any insertions
+    resetTextContent(parent);
+    // Clear ContentReset from the effect tag
+    parentFiber!.flags &= ~ContentReset;
+  }
 
-  // const before = getHostSibling(finishedWork);
-  // // We only have the top Fiber that was inserted but we need to recurse down its
-  // // children to find all the terminal nodes.
-  // if (isContainer) {
-  //   insertOrAppendPlacementNodeIntoContainer(finishedWork, before, parent);
-  // } else {
-  //   insertOrAppendPlacementNode(finishedWork, before, parent);
-  // }
+  const before = getHostSibling(finishedWork);
+  // We only have the top Fiber that was inserted but we need to recurse down its
+  // children to find all the terminal nodes.
+  if (isContainer) {
+    insertOrAppendPlacementNodeIntoContainer(finishedWork, before, parent);
+  } else {
+    insertOrAppendPlacementNode(finishedWork, before, parent);
+  }
 }
 
 function commitMutationEffectsOnFiber(finishedWork: Fiber, root: FiberRoot) {
@@ -2165,4 +2165,110 @@ function commitContainer(finishedWork: Fiber) {
   // );
 }
 
+function getHostSibling(fiber: Fiber): Element | null | undefined {
+  // We're going to search forward into the tree until we find a sibling host
+  // node. Unfortunately, if multiple insertions are done in a row we have to
+  // search past them. This leads to exponential search for the next sibling.
+  // TODO: Find a more efficient way to do this.
+  let node: Fiber = fiber;
+  siblings: while (true) {
+    // If we didn't find anything, let's try the next sibling.
+    while (node.sibling === null) {
+      if (node.return === null || isHostParent(node.return)) {
+        // If we pop out of the root or hit the parent the fiber we are the
+        // last sibling.
+        return null;
+      }
+      node = node.return;
+    }
+    node.sibling.return = node.return;
+    node = node.sibling;
+    while (
+      node.tag !== HostComponent &&
+      node.tag !== HostText &&
+      node.tag !== DehydratedFragment
+    ) {
+      // If it is not host node and, we might have a host node inside it.
+      // Try to search down until we find one.
+      if (node.flags & Placement) {
+        // If we don't have a child, try the siblings instead.
+        continue siblings;
+      }
+      // If we don't have a child, try the siblings instead.
+      // We also skip portals because they are not part of this host tree.
+      if (node.child === null || node.tag === HostPortal) {
+        continue siblings;
+      } else {
+        node.child.return = node;
+        node = node.child;
+      }
+    }
+    // Check if this host node is stable or about to be placed.
+    if (!(node.flags & Placement)) {
+      // Found it!
+      return node.stateNode;
+    }
+  }
+}
 
+function insertOrAppendPlacementNodeIntoContainer(
+  node: Fiber,
+  before: Element | null | undefined,
+  parent: Container,
+): void {
+  const {tag} = node;
+  const isHost = tag === HostComponent || tag === HostText;
+  if (isHost) {
+    const stateNode = node.stateNode;
+    if (before) {
+      insertInContainerBefore(parent, stateNode, before);
+    } else {
+      appendChildToContainer(parent, stateNode);
+    }
+  } else if (tag === HostPortal) {
+    // If the insertion itself is a portal, then we don't want to traverse
+    // down its children. Instead, we'll get insertions from each child in
+    // the portal directly.
+  } else {
+    const child = node.child;
+    if (child !== null) {
+      insertOrAppendPlacementNodeIntoContainer(child, before, parent);
+      let sibling = child.sibling;
+      while (sibling !== null) {
+        insertOrAppendPlacementNodeIntoContainer(sibling, before, parent);
+        sibling = sibling.sibling;
+      }
+    }
+  }
+}
+
+function insertOrAppendPlacementNode(
+  node: Fiber,
+  before: Element | null | undefined,
+  parent: Instance,
+): void {
+  const {tag} = node;
+  const isHost = tag === HostComponent || tag === HostText;
+  if (isHost) {
+    const stateNode = node.stateNode;
+    if (before) {
+      insertBefore(parent, stateNode, before);
+    } else {
+      appendChild(parent, stateNode);
+    }
+  } else if (tag === HostPortal) {
+    // If the insertion itself is a portal, then we don't want to traverse
+    // down its children. Instead, we'll get insertions from each child in
+    // the portal directly.
+  } else {
+    const child = node.child;
+    if (child !== null) {
+      insertOrAppendPlacementNode(child, before, parent);
+      let sibling = child.sibling;
+      while (sibling !== null) {
+        insertOrAppendPlacementNode(sibling, before, parent);
+        sibling = sibling.sibling;
+      }
+    }
+  }
+}
