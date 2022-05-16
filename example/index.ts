@@ -9,8 +9,10 @@ const Parent = () => {
   const [state, setState] = React.useState(0)
 
   React.useEffect(() => {
-    setTimeout(() => {
-      setState(1)
+    setInterval(() => {
+      setState((p) => {
+        return p+ 1
+      })
     }, 1000)
   }, [])
 
@@ -23,7 +25,7 @@ const Child = () => {
 
   console.log(context)
 
-  return React.createElement('div', {key: 'z'}, '1')
+  return React.createElement('div', {key: 'z'}, context)
 }
 
 ReactDOM.render(React.createElement(Parent), document.getElementById('app')!)
